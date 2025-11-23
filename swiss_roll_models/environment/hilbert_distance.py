@@ -1,3 +1,13 @@
+"""
+This module provides functions to compute the Hilbert distance between positive vectors
+and analyze parameter trajectories in the context of optimization within positive cones.
+
+Author: Xinyang Wen(sometimes goes by Elizabeth Wen)
+
+History:
+    1.This is part of swiss_roll_models project. in 22/11/2025
+
+"""
 import math
 import torch
 class hilbert_analysis:
@@ -77,7 +87,7 @@ class hilbert_analysis:
         return masked_traj, w_star_masked, mask
 
     @staticmethod
-    def analysis_distance_on_cone(param_traj, w_star, threshold=None, ifmask=False):
+    def analysis_distance_on_cone(param_traj, w_star, threshold=None, ifmask=False,if_threshold=False,if_self_adaptive=False):
         """
         Analyze Hilbert distance on parameter trajectory (optionally restricted to the small positive cone defined by w_star)
 
@@ -86,6 +96,8 @@ class hilbert_analysis:
             w_star:     Tensor，The reference weight (usually final weight or closed-form solution)
             threshold:  float，support threshold for small positive cone
             ifmask:     bool，whether to mask according to w_star support
+            if_threshold: bool, whether to use thresholding to replace masking
+            if_self_adaptive: bool, whether to use self-adaptive contraction(Too lazy to implement now, QWQ)
 
         Returns：
             dict containing：
@@ -96,23 +108,42 @@ class hilbert_analysis:
                 - w_star_masked:    Tensor or None
                 - mask:             BoolTensor or None
         """
+
+        if if_self_adaptive:
+            """
+            Self-adaptive contraction is used by traceing last time vector,
+            if the GD has elimiated some dimensions, then we contract the cone accordingly.
+            and recount the last step hilbert distance.(Just a vision, not implemented yet, QWQ)
+            """
+            raise ProcessLookupError("Elizabeth is too lazy to implement self-adaptive contraction now QWQ, maybe in next paper?")
+        
+        ref_traj = None
         if ifmask:
+            if if_threshold:
+                raise ValueError("cannot set both ifmask and if_threshold to True.")
             if threshold is None:
                 raise ValueError("ifmask=True but threshold is None.")
-
             masked_traj, w_star_masked, mask = hilbert_analysis.mask_by_wstar_support(
-                param_traj, w_star, threshold
-            )
-            # ref_traj is a (T, d_small) tensor
-            ref_traj = masked_traj
+            param_traj, w_star, threshold)
+            ref_traj = masked_traj  # shape (T, d_small)
             w_init = ref_traj[0]          # First point: init projection on the small positive cone
             w_star_new = w_star_masked    # Target point: w_star projection on the small positive cone
         else:
-            # No mask: directly flatten all parameters
             ref_traj = torch.stack(
-                [p.detach().clone().view(-1) for p in param_traj],
-                dim=0
-            )  # shape (T, D)
+            [p.detach().clone().view(-1) for p in param_traj],
+            dim=0)  # shape (T, D)
+            if if_threshold:
+                if threshold is None:
+                    raise ValueError("if_threshold=True but threshold is None.")
+                # Use a relative small epsilon based on w_star minimum positive entry
+                with torch.no_grad():
+                    w_flat = w_star.detach().clone().view(-1)
+                    positive = w_flat[w_flat > 0]
+                    if positive.numel() > 0:
+                        eps = positive.min().item() * 1e-3
+                    else:
+                        eps = 1e-10
+                ref_traj = torch.clamp(ref_traj, min=eps)
             w_init = ref_traj[0]
             w_star_new = ref_traj[-1]     # Last point: reference weight
             masked_traj = None
@@ -142,12 +173,6 @@ class hilbert_analysis:
             "mask": mask,
         }
 
-
-
-
-
-
-
     # @staticmethod
     # def Thompson_distance(x,y):
     #     if (x<0).any() or (y<0).any():
@@ -164,4 +189,13 @@ class hilbert_analysis:
     The following is my guess:
         1:  I guess Von Neumann metric could be related, it converges to a cone
         2:  try to use Jordan decomopsition to embed it into R^2 (This might involves complex numbers??? only god knows 只有天知道了)
+    The following are the truth:
+        3： If someone interested in this, please contact me QWQ at elizabethwen2005@gmail.com or xwen57@wisc.edu before my graduatioon(not decided yet XD)
+        4:  谁来帮我实现负锥距离啊，我太菜了啊啊啊啊啊
+        5:  Chatgpt真好用哈哈哈哈哈哈
+        6:  好像希尔伯特也这么干过挖坑不管的事情
+        7： 以上，写于22/11/2025, 傍晚时分，
+            也算是给未来的自己留个纪念：
+            ——如果这个方向真的成了，那我会笑着再读这段；
+            ——如果没成……那我就是个笑话罢了 XD
     """
