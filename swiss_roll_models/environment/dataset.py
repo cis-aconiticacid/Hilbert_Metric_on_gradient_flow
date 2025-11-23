@@ -11,7 +11,7 @@ with either regression or classification targets in a D-dimensional space.
 
 # Randomly generate swiss roll samples over D-dimensional space
 # with regression or classification targets.
-def _swiss_roll_geometry(n_samples, D=32, noise=0.0, device="cpu"):
+def _swiss_roll_geometry(n_samples, D=32, noise=0.0, device="cuda"):
     """
     Generates the geometric structure of a swiss roll in D-dimensional space.
     Args:
@@ -43,7 +43,7 @@ def _swiss_roll_geometry(n_samples, D=32, noise=0.0, device="cpu"):
     return X_high, u, v
 
 # Generate swiss roll dataset with regression or classification targets
-def generate_swiss_roll(n_samples, task="regression", D=32, noise=0.0, device="cpu"):
+def generate_swiss_roll(n_samples, task="regression", D=32, noise=0.0, device="cuda"):
     """
     Generates a D-dimensional swiss roll dataset with either regression or classification targets.
     Args:
