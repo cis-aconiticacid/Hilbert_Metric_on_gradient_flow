@@ -193,7 +193,8 @@ class hilbert_analysis:
         3： If someone interested in this, please contact me QWQ at elizabethwen2005@gmail.com or xwen57@wisc.edu before my graduatioon(not decided yet XD)
         4:  谁来帮我实现负锥距离啊，我太菜了啊啊啊啊啊
         5:  Chatgpt真好用哈哈哈哈哈哈
-        6:  好像希尔伯特也这么干过挖坑不管的事情
+            Gpt说应该加上"（感谢你陪我写奇怪的动力系统 XD）这句话"
+        6:  好像希尔伯特也这么干过挖坑不管的事情（毕竟这个就是他挖的坑(Legacy)）
         7： 以上，写于22/11/2025, 傍晚时分，
             也算是给未来的自己留个纪念：
             ——如果这个方向真的成了，那我会笑着再读这段；
