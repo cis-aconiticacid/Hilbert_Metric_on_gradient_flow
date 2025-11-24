@@ -17,42 +17,32 @@ class hilbert_analysis:
         x, y: (m,) positive (>0)
         d_H(x, y) = log( max_i x_i / y_i ) - log( min_i x_i / y_i )
 
-        Returns: float
+        Return a Python float
         """
-        # Avoid zeros
-        # If it's zero, it collapse techically to infinity
-        # However, we have two options to make it up
-        # 1) mask zeros after training (use thresholding)
-        # 2) use 
+        if not torch.is_tensor(x):
+            x = torch.as_tensor(x)
+        if not torch.is_tensor(y):
+            y = torch.as_tensor(y)
 
-        if(x<eps).any() or (y<eps).any():
+        x = x.view(-1)
+        y = y.view(-1)
+
+        if (x < eps).any() or (y < eps).any():
             raise ValueError("Inputs to hilbert_distance must be strictly positive.")
+
         ratio = x / y
         max_r = ratio.max()
         min_r = ratio.min()
-        
         return (max_r.log() - min_r.log()).item()
-    
+
     @staticmethod
     def mask_by_wstar_support(param_traj, w_star, threshold):
         """
-        Use w_star to define a supportive cone”：
-            mask_i = (|w_star_i| > threshold)
-
-        Parameters：
-            param_traj: list[Tensor]，every param is a vecotrt, use view(-1) to flatten
-            w_star:     Tensor，] the reference weight (usually final weight or closed-form solution)
-            threshold:  Support threshold for small positive cone
-
-        Returns：
-            masked_traj:  Tensor, shape (T, d_small)
-            w_star_masked: Tensor, shape (d_small,)
-            mask:          BoolTensor, shape (D,)
+        Use w_star to support small cone，和你原来完全一致。
+        参数和返回值接口保持不变。
         """
-        # Flatten to a 1D vector
         w_ref_raw = w_star.detach().clone().view(-1)
 
-        # Use w_star to determine the support of "non-vanishing dimensions"
         mask = (w_ref_raw.abs() > threshold)
 
         if mask.sum().item() == 0:
@@ -67,10 +57,8 @@ class hilbert_analysis:
                 "Crash happening during masking by w_star support."
             )
 
-        # Restrict w_star to the small positive cone
         w_star_masked = w_ref_raw[mask]
 
-        # Apply the same mask to each step in param_traj
         masked_list = []
         for idx, vect in enumerate(param_traj):
             v_raw = vect.detach().clone().view(-1)
@@ -81,61 +69,52 @@ class hilbert_analysis:
                 )
             masked_list.append(v_raw[mask])
 
-        # Stack into a (T, d_small) tensor for unified processing later
         masked_traj = torch.stack(masked_list, dim=0)
-
         return masked_traj, w_star_masked, mask
 
     @staticmethod
-    def analysis_distance_on_cone(param_traj, w_star, threshold=None, ifmask=False,if_threshold=False,if_self_adaptive=False):
+    def analysis_distance_on_cone(param_traj, w_star,
+                                  threshold=None,
+                                  ifmask=False,
+                                  if_threshold=False,
+                                  if_self_adaptive=False):
         """
-        Analyze Hilbert distance on parameter trajectory (optionally restricted to the small positive cone defined by w_star)
-
-        Parameters：
-            param_traj: list[Tensor],Ttrajectory parameters (one at each step)
-            w_star:     Tensor，The reference weight (usually final weight or closed-form solution)
-            threshold:  float，support threshold for small positive cone
-            ifmask:     bool，whether to mask according to w_star support
-            if_threshold: bool, whether to use thresholding to replace masking
-            if_self_adaptive: bool, whether to use self-adaptive contraction(Too lazy to implement now, QWQ)
-
-        Returns：
-            dict containing：
-                - hilbert_to_final: list[float]
-                - hilbert_to_init:  list[float]
-                - hilbert_between:  list[float]
-                - traj_masked:      Tensor or None
-                - w_star_masked:    Tensor or None
-                - mask:             BoolTensor or None
+        界面和原来一模一样，但内部计算全面向量化，加速很多。
+        返回 dict:
+            - hilbert_to_final: list[float]
+            - hilbert_to_init:  list[float]
+            - hilbert_between:  list[float]
+            - traj_masked:      Tensor or None
+            - w_star_masked:    Tensor or None
+            - mask:             BoolTensor or None
         """
 
         if if_self_adaptive:
-            """
-            Self-adaptive contraction is used by traceing last time vector,
-            if the GD has elimiated some dimensions, then we contract the cone accordingly.
-            and recount the last step hilbert distance.(Just a vision, not implemented yet, QWQ)
-            """
-            raise ProcessLookupError("Elizabeth is too lazy to implement self-adaptive contraction now QWQ, maybe in next paper?")
-        
-        ref_traj = None
+            raise ProcessLookupError(
+                "Elizabeth is too lazy to implement self-adaptive contraction now QWQ, maybe in next paper?"
+            )
+
+        # --------- 1. 构造 ref_traj、w_init、w_star_new ----------
         if ifmask:
             if if_threshold:
                 raise ValueError("cannot set both ifmask and if_threshold to True.")
             if threshold is None:
                 raise ValueError("ifmask=True but threshold is None.")
+
             masked_traj, w_star_masked, mask = hilbert_analysis.mask_by_wstar_support(
-            param_traj, w_star, threshold)
-            ref_traj = masked_traj  # shape (T, d_small)
-            w_init = ref_traj[0]          # First point: init projection on the small positive cone
-            w_star_new = w_star_masked    # Target point: w_star projection on the small positive cone
+                param_traj, w_star, threshold
+            )
+            ref_traj = masked_traj          # (T, d_small)
+            w_init = ref_traj[0]            # 初始点
+            w_star_new = w_star_masked      # 目标点
         else:
             ref_traj = torch.stack(
-            [p.detach().clone().view(-1) for p in param_traj],
-            dim=0)  # shape (T, D)
+                [p.detach().clone().view(-1) for p in param_traj],
+                dim=0
+            )  # (T, D)
             if if_threshold:
                 if threshold is None:
                     raise ValueError("if_threshold=True but threshold is None.")
-                # Use a relative small epsilon based on w_star minimum positive entry
                 with torch.no_grad():
                     w_flat = w_star.detach().clone().view(-1)
                     positive = w_flat[w_flat > 0]
@@ -144,25 +123,47 @@ class hilbert_analysis:
                     else:
                         eps = 1e-10
                 ref_traj = torch.clamp(ref_traj, min=eps)
+
             w_init = ref_traj[0]
-            w_star_new = ref_traj[-1]     # Last point: reference weight
+            w_star_new = ref_traj[-1]
             masked_traj = None
             w_star_masked = None
             mask = None
 
-        hilbert_to_final = []
-        hilbert_to_init = []
-        hilbert_between = []
+        # --------- 2. 统一 dtype + eps clamp，避免 0 ---------
+        eps = 1e-10
+        ref_traj = ref_traj.to(dtype=torch.float64)
 
-        prev_v = None
-        for idx, v in enumerate(ref_traj):
-            # v is a 1D vector (d_small,) or (D,)
-            hilbert_to_final.append(hilbert_analysis.hilbert_distance(v, w_star_new))
-            hilbert_to_init.append(hilbert_analysis.hilbert_distance(v, w_init))
+        w_init = w_init.to(dtype=torch.float64)
+        w_star_new = w_star_new.to(dtype=torch.float64)
 
-            if idx > 0:
-                hilbert_between.append(hilbert_analysis.hilbert_distance(v, prev_v))
-            prev_v = v
+        ref_traj = torch.clamp(ref_traj, min=eps)
+        w_init = torch.clamp(w_init, min=eps)
+        w_star_new = torch.clamp(w_star_new, min=eps)
+
+        T, D = ref_traj.shape
+
+        # --------- 3. 向量化计算 d_H(w_t, w*) ----------
+        # ratio_final: (T, D)
+        ratio_final = ref_traj / w_star_new  # 广播 (T,D) / (D,)
+        max_r_f, _ = ratio_final.max(dim=1)  # (T,)
+        min_r_f, _ = ratio_final.min(dim=1)
+        hilbert_to_final = (max_r_f.log() - min_r_f.log()).tolist()
+
+        # --------- 4. 向量化计算 d_H(w_t, w_0) ----------
+        ratio_init = ref_traj / w_init      # (T, D)
+        max_r_i, _ = ratio_init.max(dim=1)
+        min_r_i, _ = ratio_init.min(dim=1)
+        hilbert_to_init = (max_r_i.log() - min_r_i.log()).tolist()
+
+        # --------- 5. 向量化计算 d_H(w_t, w_{t-1}) ----------
+        if T >= 2:
+            ratio_between = ref_traj[1:] / ref_traj[:-1]   # (T-1, D)
+            max_r_b, _ = ratio_between.max(dim=1)
+            min_r_b, _ = ratio_between.min(dim=1)
+            hilbert_between = (max_r_b.log() - min_r_b.log()).tolist()
+        else:
+            hilbert_between = []
 
         return {
             "hilbert_to_final": hilbert_to_final,

@@ -1,0 +1,24 @@
+===== Models Information =====
+
+batch_size=10, lr=0.01, epochs=2004
+
+training log
+Using device: cuda
+Training finished. Recorded steps (updates) = 2000, trajectory length (including init) = 2001
+
+===== No Masking Analysis Results =====
+  Mean ≈ 0.9902
+  Min ≈ 0.0000, Max ≈ 2.1391
+
+The 200 to 1200: ratio_to_final:
+  Mean ≈ 0.9998
+  Min ≈ 0.9665, Max ≈ 1.0016
+===== Masked Cone Analysis Results =====
+
+Last 200 Steps ratio_to_final:
+  Mean ≈ 1.0203
+  Min ≈ 0.0000, Max ≈ 4.3620
+
+Ratio_to_final from step 200 to 1200:
+  Mean ≈ 0.9999
+  Min ≈ 0.9794, Max ≈ 1.0009

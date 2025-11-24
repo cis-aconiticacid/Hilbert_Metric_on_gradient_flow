@@ -1,0 +1,44 @@
+===== Models Information =====
+
+batch_size=64, lr=0.01, epochs=3
+
+training log
+Using device: cuda
+Epoch [1/3]  Loss: 0.5642  Acc: 85.94%
+Epoch [1/3]  Loss: 0.5642  Acc: 85.94%
+Epoch [2/3]  Loss: 0.2955  Acc: 91.52%
+Epoch [2/3]  Loss: 0.2955  Acc: 91.52%
+Epoch [3/3]  Loss: 0.2471  Acc: 92.99%
+Epoch [3/3]  Loss: 0.2471  Acc: 92.99%
+Training finished. Total recorded steps (including init): 2815Training finished. Total recorded steps (including init): 2815
+
+=== Hilbert Analysis Results (Partial) ===
+len(hilbert_to_final)  = 2815  # Distance to w* at each step
+len(hilbert_to_init)   = 2815   # Distance to w0 at each step
+len(hilbert_between)   = 2814  # Distance between consecutive steps
+
+First 10 steps d_H(w_t, w*):
+[13.932312965393066, 12.624181747436523, 14.808477401733398, 13.906022071838379, 12.525505065917969, 12.851927757263184, 12.815942764282227, 13.995752334594727, 15.216556549072266, 14.011703491210938]
+
+First 10 steps d_H(w_t, w_0):
+[0.0, 3.348867177963257, 6.582430839538574, 5.863959312438965, 4.7552876472473145, 5.985917091369629, 7.2770466804504395, 6.49614143371582, 7.907038688659668, 7.131434440612793]
+
+First 10 steps d_H(w_t, w_{t-1}):
+[3.348867177963257, 3.366755485534668, 4.898370265960693, 2.6901214122772217, 2.332305908203125, 2.683993101119995, 4.067492485046387, 2.3278164863586426, 4.320926189422607, 3.831801652908325]
+
+===== No Masking Analysis Results =====
+  Mean ≈ 1.0017
+  Min ≈ 0.0000, Max ≈ 1.6925
+
+The 200 to 1200: ratio_to_final:
+  Mean ≈ 1.0053
+  Min ≈ 0.7182, Max ≈ 1.3843
+===== Masked Cone Analysis Results =====
+
+Last 200 Steps ratio_to_final:
+  Mean ≈ 1.0007
+  Min ≈ 0.0000, Max ≈ 1.7312
+
+Ratio_to_final from step 200 to 1200:
+  Mean ≈ 1.0083
+  Min ≈ 0.6584, Max ≈ 1.4693
