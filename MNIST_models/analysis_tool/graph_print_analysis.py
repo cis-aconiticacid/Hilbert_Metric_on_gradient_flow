@@ -13,13 +13,13 @@ for p in [Path.cwd(), *Path.cwd().parents]:
 from environment.hilbert_distance import hilbert_analysis as hda
 
 # ============================
-# 工具函数
+# Tools functions
 # ============================
 
 def moving_average_xy(y, window=50):
     """
-    对 (step, y) 做滑动平均，返回 (x_smooth, y_smooth)，
-    x_smooth 是 step 的滑动平均，保证 x 轴和真实 step 对齐。
+    Average (step, y) ，Return (x_smooth, y_smooth)，
+    x_smooth is the moving average of step, ensuring the x-axis aligns with the actual step.
     """
     y = np.array(y, dtype=float)
     n = len(y)
@@ -37,8 +37,8 @@ def moving_average_xy(y, window=50):
 
 def downsample_xy(x, y, max_points=1000):
     """
-    将 (x, y) 等距下采样到最多 max_points 个点。
-    用于避免画图太密集，同时不依赖固定的 stride。
+    Downsample (x, y) evenly to at most max_points points.
+    Used to avoid overly dense plots without relying on a fixed stride.
     """
     x = np.asarray(x)
     y = np.asarray(y)
@@ -51,8 +51,8 @@ def downsample_xy(x, y, max_points=1000):
 
 def describe_segment(vals):
     """
-    对一段 ratio 列表做统计，返回 mean/min/max/Q25/Q75 的 dict。
-    NaN 会被过滤；如果全是 NaN，返回 None。
+    Compute statistics for a segment of ratio values, returning a dict with mean/min/max/Q25/Q75.
+    NaN values are filtered out; if all are NaN, return None.
     """
     vals = [v for v in vals if not math.isnan(v)]
     if not vals:
@@ -74,7 +74,7 @@ def compute_hilbert_metrics(param_traj,
                             if_self_adaptive=False,
                             w_star=None):
     """
-    调用 hda.analysis_distance_on_cone，返回：
+    Call hda.analysis_distance_on_cone, returning:
       - hilbert_to_final, hilbert_between, hilbert_to_init
       - ratios_to_final, ratios_between
     """
@@ -117,7 +117,7 @@ def compute_hilbert_metrics(param_traj,
 
 
 # ============================
-# 画图函数（只负责画图）
+# Plotting functions (only responsible for plotting)
 # ============================
 
 def plot_hilbert_distance_smoothed(hilbert_to_final,
@@ -125,10 +125,10 @@ def plot_hilbert_distance_smoothed(hilbert_to_final,
                                    result_dir,
                                    suffix="unmasked"):
     """
-    TODO #1：用 moving_average_xy 做平滑，
-    画 d_H(w_t, w*) 的 log-scale 曲线。
+    TODO #1: Use moving_average_xy for smoothing,
+    plot the log-scale curve of d_H(w_t, w*).
     """
-    window_h = max(20, len(hilbert_to_final) // 100)  # 根据长度自适应
+    window_h = max(20, len(hilbert_to_final) // 100)  # Adapt based on length
     x_h, hilbert_smooth = moving_average_xy(hilbert_to_final, window=window_h)
 
     plt.figure()
@@ -154,9 +154,9 @@ def plot_ratio_global_smoothed(ratios,
                                result_dir,
                                suffix="unmasked"):
     """
-    TODO #1/#4：ratio 全程平滑图。
-    - 不删除 NaN，而是先替换为 1.0
-    - 用 moving_average_xy 对齐 step
+    TODO #1/#4: Plot the globally smoothed ratio.
+    - Instead of removing NaN, replace them with 1.0 first.
+    - Use moving_average_xy to align steps.
     """
     ratio_array = np.array(ratios, dtype=float)
     bad = ~np.isfinite(ratio_array)
@@ -194,8 +194,8 @@ def plot_ratio_zoom_last(ratios,
                          zoom_len=300,
                          window=10):
     """
-    TODO #3：只看最后 zoom_len 步的 ratio。
-    - 用很小窗口（或者 window=1 基本不平滑）看末端乱跳。
+    TODO #3: Only look at the last zoom_len steps of the ratio.
+    - Use a very small window (or window=1 for almost no smoothing) to observe end fluctuations.
     """
     ratio_array = np.array(ratios, dtype=float)
     bad = ~np.isfinite(ratio_array)
@@ -209,11 +209,11 @@ def plot_ratio_zoom_last(ratios,
     steps_zoom = np.arange(start_idx, n)
     ratio_zoom = ratio_array[start_idx:]
 
-    # 在 zoom 里用较小的 window
+    # Use a smaller window within the zoomed section
     window = min(window, len(ratio_zoom)) if window > 1 else 1
     x_zoom, ratio_zoom_smooth = moving_average_xy(ratio_zoom, window=window)
 
-    # x_zoom 是相对 index，所以要平移到真实 step
+    # x_zoom is relative index, so shift to real step
     x_zoom_real = x_zoom + start_idx
 
     plt.figure()
@@ -240,9 +240,9 @@ def plot_masked_hilbert_and_ratio(hilbert_to_final2,
                                   batch_size, lr, num_epochs,
                                   result_dir):
     """
-    TODO #1/#3/#4：Masked 的 Hilbert + ratio 图。
-    - Hilbert：log-scale 原始曲线 + 平滑版（可选）
-    - ratio：全程平滑 + last 300/100 步 zoom in
+    TODO #1/#3/#4: Plot the Hilbert and ratio for Masked.
+    - Hilbert: log-scale original curve + smoothed version (optional)
+    - ratio: globally smoothed + last 300/100 steps zoom in
     """
     # Hilbert distance (masked, 原始 log-scale)
     steps = np.arange(len(hilbert_to_final2))
@@ -264,7 +264,7 @@ def plot_masked_hilbert_and_ratio(hilbert_to_final2,
     plt.savefig(output_path2)
     plt.close()
 
-    # ratio 全程平滑 + zoom in
+    # ratio globally smoothed + zoom in
     plot_ratio_global_smoothed(
         ratios_to_final2,
         batch_size, lr, num_epochs,
@@ -290,16 +290,16 @@ def plot_masked_hilbert_and_ratio(hilbert_to_final2,
 
 
 # ============================
-# 文本写入（统计）函数
+# Text Writing (Statistics) Functions
 # ============================
 
 def write_unmasked_stats(f, ratios_to_final):
     """
-    写入无 mask 的 ratio 统计：
-    - 前 200
-    - 200–400
-    - 最后 200
-    加上 mean/min/max/Q25/Q75（TODO #5）
+    Write statistics for unmasked ratios:
+    - First 200 steps
+    - Steps 200–400
+    - Last 200 steps
+    Including mean/min/max/Q25/Q75 (TODO #5)
     """
     f.write("===== No Masking Analysis Results =====\n")
 
@@ -368,51 +368,125 @@ def write_masked_stats(f, ratios_to_final2):
         f.write(f"  Q25 ≈ {desc_tail2['q25']:.4f}, Q75 ≈ {desc_tail2['q75']:.4f}\n")
 
 
+def write_stats_in_range(
+    f,
+    start: int,
+    end: int,
+    ratios,
+    step: int,
+    name: str,
+    if_average: bool = False,
+):
+    """
+    Write statistics of ratios in the range [start, end) to the file f.
+
+    - step: The actual training step interval (e.g., if recorded every 10 steps, pass 10)
+    - name: The name of this range, such as "no_mask" / "masked"
+    - if_average: If True, average this segment first (used for average results of multiple curves)
+    """
+    # Boundary protection
+    n = len(ratios)
+    if start < 0:
+        start = 0
+    if end > n:
+        end = n
+    if start >= end:
+        f.write(f"\n[WARN] Empty range for {name}: start={start}, end={end}\n")
+        return
+
+    segment = ratios[start:end]
+
+    # If averaging is needed (e.g., you passed in a list of multiple experimental results)
+    if if_average:
+        import numpy as np
+        segment = np.array(segment, dtype=float)
+        # Simple approach: take the mean of this entire segment, other statistics are handled by describe_segment as usual
+        avg_value = float(np.nanmean(segment))
+        # Record an overall mean
+        f.write(
+            f"\nSteps {start*step} to {end*step} "
+            f"(index {start} to {end}, {name}, averaged):\n"
+        )
+        f.write(f"  Overall mean ≈ {avg_value:.4f}\n")
+
+    # Call your original statistics function
+    desc = describe_segment(segment)
+    if desc is None:
+        f.write(
+            f"\nSteps {start*step} to {end*step} "
+            f"(index {start} to {end}, {name}):\n"
+        )
+        f.write("  [WARN] No valid data in this range.\n")
+        return
+
+    # Real step range (considering sampling interval)
+    real_start = start * step
+    real_end = end * step
+
+    f.write(
+        f"\nSteps {real_start} to {real_end} "
+        f"(index {start} to {end}, {name}):\n"
+    )
+    f.write(f"  Mean ≈ {desc['mean']:.4f}\n")
+    f.write(f"  Min ≈ {desc['min']:.4f}, Max ≈ {desc['max']:.4f}\n")
+    f.write(f"  Q25 ≈ {desc['q25']:.4f}, Q75 ≈ {desc['q75']:.4f}\n")
+
+
+
+
 # ============================
-# 顶层分析函数：调用上面的东西
+# Top-level Analysis Function
 # ============================
 
-def analysis(param_traj, output_log, batch_size, lr, num_epochs=None,
-             threshold=1e-3, if_mask=True, steps=None):
+def analysis(param_traj, output_log, batch_size, lr, path='./model_result/',num_epochs=None,
+             threshold=1e-3, if_mask=True, steps=None,name=None):
     """
-    顶层总入口：
-      1. 创建 result_dir 和 result_path
-      2. 计算 unmasked Hilbert / ratio
-      3. 画 unmasked 图（全程 + zoom）
-      4. 写 unmasked 文本统计
-      5. 如果 if_mask=True：
-         - 计算 masked Hilbert / ratio
-         - 画 masked 图（全程 + zoom）
-         - 写 masked 文本统计
-      6. 返回相关结果（方便之后做更复杂分析）
+    Top-level analysis function:
+      0. Create result_dir and result_path
+      1. Create result_dir and result_path
+      2. Compute unmasked Hilbert / ratio
+      3. Plot unmasked graphs (global + zoom)
+      4. Write unmasked text statistics
+      5. If if_mask=True:
+         - Compute masked Hilbert / ratio
+         - Plot masked graphs (global + zoom)
+         - Write masked text statistics
+      6. Return relevant results (for further complex analysis)
 
-    对于“错误”情况不做 try/except 捕获，直接让错误抛出：
-      - num_epochs 和 steps 同时 None 会 raise ValueError（和原来逻辑一致）
+    For error cases, do not catch with try/except; let errors raise directly:
+      - If both num_epochs and steps are None, raise ValueError (consistent with original logic)
     """
+
+    if name is None:
+        name = f"Analysis_bs{batch_size}_lr{lr}_ep{num_epochs}"
 
     if steps is not None:
         num_epochs = steps
     elif num_epochs is None:
         raise ValueError("Either num_epochs or steps must be provided.")
 
-    # 0. 创建目录和结果文件
-    result_dir = './model_result/'+f"Analysis_bs{batch_size}_lr{lr}_ep{num_epochs}"
+    # 0. Create result_dir and result_path
+    result_dir = path+f"{name}"
     os.makedirs(result_dir, exist_ok=True)
 
     result_path = os.path.join(
         result_dir,
-        f"Analysis_bs{batch_size}_lr{lr}_ep{num_epochs}.txt"
+        f"{name}.txt"
     )
 
-    # 这里保留“已经做过就跳过”的逻辑，这不是错误，只是逻辑控制
-    if os.path.exists(result_path):
-        print(f"Analysis file {result_path} already exists. Skipping analysis.")
-        return
+    # Avoid overwriting existing files
+    index=1
+    while os.path.exists(result_path):
+        result_path = os.path.join(
+            result_dir,
+            f"{name}_v{index}.txt"
+        )
+        index+=1
 
     if sys.path and "swiss_roll_models" in sys.path[0]:
         sys.path.pop(0)
 
-    # 1. 无 mask 的 Hilbert / ratio
+    # 1. Unmasked Hilbert / ratio
     metrics_unmasked = compute_hilbert_metrics(
         param_traj=param_traj,
         threshold=threshold,
@@ -425,7 +499,7 @@ def analysis(param_traj, output_log, batch_size, lr, num_epochs=None,
     ratios_to_final = metrics_unmasked["ratios_to_final"]
     ratios_between = metrics_unmasked["ratios_between"]
 
-    # 2. 无 mask 图：Hilbert 平滑 + ratio 全程平滑 + ratio 末端 zoom
+    # 2. non-masked graph：Hilbert smoothing + ratio global smoothing + ratio zoom at the end
     plot_hilbert_distance_smoothed(
         hilbert_to_final,
         batch_size, lr, num_epochs,
@@ -455,7 +529,7 @@ def analysis(param_traj, output_log, batch_size, lr, num_epochs=None,
         window=5,
     )
 
-    # 3. 写文本：模型信息 + training log + 无 mask 统计
+    # 3. Write text: model information + training log + unmasked statistics
     with open(result_path, "a", encoding="utf-8") as f:
         f.write("===== Models Information =====\n\n")
         f.write(f"batch_size={batch_size}, lr={lr}, epochs={num_epochs}\n\n")
@@ -465,16 +539,16 @@ def analysis(param_traj, output_log, batch_size, lr, num_epochs=None,
 
         write_unmasked_stats(f, ratios_to_final)
 
-        # 4. 如果不需要 masked，直接结束
+        # 4. If masked analysis is not needed, end here
         if not if_mask:
-            # 返回无 mask 的结果
+            # Return unmasked results
             return {
                 "hilbert_to_final": hilbert_to_final,
                 "ratios_to_final": ratios_to_final,
                 "ratios_between": ratios_between,
             }
 
-        # 5. Masked 分析
+        # 5. Masked analysis
         para_traj2 = param_traj
         w_star_raw = para_traj2[-1].clone()
 
@@ -490,10 +564,10 @@ def analysis(param_traj, output_log, batch_size, lr, num_epochs=None,
         ratios_to_final2 = metrics_masked["ratios_to_final"]
         ratios_between2 = metrics_masked["ratios_between"]
 
-        # 文本统计（masked）
+        # Text statistics (masked)
         write_masked_stats(f, ratios_to_final2)
 
-    # 6. Masked 图（Hilbert + ratio 全程 + ratio zoom）
+    # 6. Masked graphs (Hilbert + ratio global + ratio zoom)
     plot_masked_hilbert_and_ratio(
         hilbert_to_final2,
         ratios_to_final2,
