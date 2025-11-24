@@ -149,19 +149,24 @@ def analysis(param_traj, output_log, batch_size, lr, num_epochs=None,
     f.write("\n")
 
     f.write("===== No Masking Analysis Results =====\n")
+    front_200= ratios_to_final[:200]
+    medium_200_400 = ratios_to_final[200:400]
+    f.write("The first 200 Steps ratio_to_final:\n")
+    if len(front_200) > 0:
+        front_200_clean = [r for r in front_200 if not math.isnan(r)]
+        f.write(f"  Mean ≈ {sum(front_200_clean)/len(front_200_clean):.4f}\n")
+        f.write(f"  Min ≈ {min(front_200_clean):.4f}, Max ≈ {max(front_200_clean):.4f}\n")
+    f.write("The 200 to 400 Steps ratio_to_final:\n")
+    if len(medium_200_400) > 0:
+        medium_200_400_clean = [r for r in medium_200_400 if not math.isnan(r)]
+        f.write(f"  Mean ≈ {sum(medium_200_400_clean)/len(medium_200_400_clean):.4f}\n")
+        f.write(f"  Min ≈ {min(medium_200_400_clean):.4f}, Max ≈ {max(medium_200_400_clean):.4f}\n")
     tail_200 = ratios_to_final[-200:]
     tail_200_clean = [r for r in tail_200 if not math.isnan(r)]
-    medium_1000 = ratios_to_final[200:1200]
-    medium_1000_clean = [r for r in medium_1000 if not math.isnan(r)]
 
     if len(tail_200_clean) > 0:
         f.write(f"  Mean ≈ {sum(tail_200_clean)/len(tail_200_clean):.4f}\n")
         f.write(f"  Min ≈ {min(tail_200_clean):.4f}, Max ≈ {max(tail_200_clean):.4f}\n")
-
-    if len(medium_1000_clean) > 0:
-        f.write("\nThe 200 to 1200: ratio_to_final:\n")
-        f.write(f"  Mean ≈ {sum(medium_1000_clean)/len(medium_1000_clean):.4f}\n")
-        f.write(f"  Min ≈ {min(medium_1000_clean):.4f}, Max ≈ {max(medium_1000_clean):.4f}\n")
 
     # 这里是你原来的：
     para_traj2 = param_traj   # The original positive trajectory (already abs+1e-6 processed)
@@ -202,21 +207,24 @@ def analysis(param_traj, output_log, batch_size, lr, num_epochs=None,
         else:
             ratios_between2.append(float("nan"))
 
-    steps2 = list(range(len(hilbert_to_final2)))
-
+    front_200_2= ratios_to_final2[:200]
+    medium_200_400_2 = ratios_to_final2[200:400]
+    f.write("\nFirst 200 Steps ratio_to_final:\n")
+    if len(front_200_2) > 0:
+        front_200_clean2 = [r for r in front_200_2 if not math.isnan(r)]
+        f.write(f"  Mean ≈ {sum(front_200_clean2)/len(front_200_clean2):.4f}\n")
+        f.write(f"  Min ≈ {min(front_200_clean2):.4f}, Max ≈ {max(front_200_clean2):.4f}\n")
+    f.write("200 to 400 Steps ratio_to_final:\n")
+    if len(medium_200_400_2) > 0:
+        medium_200_400_clean2 = [r for r in medium_200_400_2 if not math.isnan(r)]
+        f.write(f"  Mean ≈ {sum(medium_200_400_clean2)/len(medium_200_400_clean2):.4f}\n")
+        f.write(f"  Min ≈ {min(medium_200_400_clean2):.4f}, Max ≈ {max(medium_200_400_clean2):.4f}\n")
     f.write("\nLast 200 Steps ratio_to_final:\n")
     tail_200_2 = ratios_to_final2[-200:]
     tail_200_clean2 = [r for r in tail_200_2 if not math.isnan(r)]
     if len(tail_200_clean2) > 0:
         f.write(f"  Mean ≈ {sum(tail_200_clean2)/len(tail_200_clean2):.4f}\n")
         f.write(f"  Min ≈ {min(tail_200_clean2):.4f}, Max ≈ {max(tail_200_clean2):.4f}\n")
-
-    medium_1000_2 = ratios_to_final2[200:1200]
-    medium_1000_clean2 = [r for r in medium_1000_2 if not math.isnan(r)]
-    if len(medium_1000_clean2) > 0:
-        f.write(f"\nRatio_to_final from step 200 to 1200:\n")
-        f.write(f"  Mean ≈ {sum(medium_1000_clean2)/len(medium_1000_clean2):.4f}\n")
-        f.write(f"  Min ≈ {min(medium_1000_clean2):.4f}, Max ≈ {max(medium_1000_clean2):.4f}\n")
 
     # ============================
     # 6. Masked 曲线图（d_H / ratio）
@@ -260,4 +268,9 @@ def analysis(param_traj, output_log, batch_size, lr, num_epochs=None,
     plt.close()
 
     f.close()
+    return{
+        "ratios_to_final": ratios_to_final,
+        "ratios_between": ratios_between,
+        "ratios_to_final_masked": ratios_to_final2,
+    }
     # 不再 os.chdir(original_path)
