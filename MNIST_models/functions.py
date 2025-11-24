@@ -27,18 +27,20 @@ def analysis(param_traj, output_log, batch_size, lr, num_epochs=None,
     # ============================
     # 0. 为这一次调用创建单独文件夹
     # ============================
-    result_dir = f"Analysis_bs{batch_size}_lr{lr}_ep{num_epochs}"
+    result_dir = './analysis_result/'+f"Analysis_bs{batch_size}_lr{lr}_ep{num_epochs}"
     os.makedirs(result_dir, exist_ok=True)
 
     # 原来的 result_path 现在放到这个文件夹里
     result_path = os.path.join(result_dir,
                                f"Analysis_bs{batch_size}_lr{lr}_ep{num_epochs}.txt")
 
-    # 如果已经做过分析就跳过
-    if os.path.exists(result_path):
-        print(f"Analysis file {result_path} already exists. Skipping analysis.")
-        return
-
+    index=1
+    while os.path.exists(result_path):
+        result_path = os.path.join(
+            result_dir,
+            f"Analysis_bs{batch_size}_lr{lr}_ep{num_epochs}_v{index}.txt"
+        )
+        index += 1
     # 不再 chdir，也不再用 original_path 了
     # original_path = os.getcwd()
 
@@ -84,7 +86,6 @@ def analysis(param_traj, output_log, batch_size, lr, num_epochs=None,
             return x
         kernel = np.ones(window) / window
         return np.convolve(x, kernel, mode="valid")
-
     window_h = 50  # 你可以调大一点，比如 100，看起来更平滑
     hilbert_smooth = smooth(hilbert_to_final, window=window_h)
 
@@ -163,7 +164,8 @@ def analysis(param_traj, output_log, batch_size, lr, num_epochs=None,
         f.write(f"  Min ≈ {min(medium_200_400_clean):.4f}, Max ≈ {max(medium_200_400_clean):.4f}\n")
     tail_200 = ratios_to_final[-200:]
     tail_200_clean = [r for r in tail_200 if not math.isnan(r)]
-
+    f.write("\nThe last 200 Steps ratio_to_final:\n")
+    
     if len(tail_200_clean) > 0:
         f.write(f"  Mean ≈ {sum(tail_200_clean)/len(tail_200_clean):.4f}\n")
         f.write(f"  Min ≈ {min(tail_200_clean):.4f}, Max ≈ {max(tail_200_clean):.4f}\n")
@@ -230,7 +232,8 @@ def analysis(param_traj, output_log, batch_size, lr, num_epochs=None,
     # 6. Masked 曲线图（d_H / ratio）
     # ============================
     plt.figure()
-    plt.semilogy(steps2, hilbert_to_final2)
+    steps_r = list(range(len(hilbert_to_final2)))
+    plt.semilogy(steps_r, hilbert_to_final2)
     plt.xlabel("step t")
     plt.ylabel("d_H(w_t, w*) (log scale)")
     title = (
