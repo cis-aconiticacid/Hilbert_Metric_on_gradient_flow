@@ -123,7 +123,7 @@ def compute_hilbert_metrics(param_traj,
 def plot_hilbert_distance_smoothed(hilbert_to_final,
                                    batch_size, lr, num_epochs,
                                    result_dir,
-                                   suffix="unmasked"):
+                                   suffix="unmasked",save_name=None):
     """
     TODO #1: Use moving_average_xy for smoothing,
     plot the log-scale curve of d_H(w_t, w*).
@@ -141,10 +141,13 @@ def plot_hilbert_distance_smoothed(hilbert_to_final,
         f"batch_size={batch_size}, lr={lr}, epochs={num_epochs}"
     )
     plt.tight_layout()
-    output_path = os.path.join(
-        result_dir,
-        f"HTF_smooth_{suffix}_bs{batch_size}_lr{lr}_ep{num_epochs}.png"
-    )
+    if save_name is None:
+        output_path = os.path.join(
+            result_dir,
+            f"HTF_smooth_{suffix}_bs{batch_size}_lr{lr}_ep{num_epochs}.png"
+        )
+    else:
+        output_path = save_name
     plt.savefig(output_path)
     plt.close()
 
@@ -152,7 +155,8 @@ def plot_hilbert_distance_smoothed(hilbert_to_final,
 def plot_ratio_global_smoothed(ratios,
                                batch_size, lr, num_epochs,
                                result_dir,
-                               suffix="unmasked"):
+                               suffix="unmasked",
+                               save_name=None):
     """
     TODO #1/#4: Plot the globally smoothed ratio.
     - Instead of removing NaN, replace them with 1.0 first.
@@ -179,10 +183,13 @@ def plot_ratio_global_smoothed(ratios,
         f"batch_size={batch_size}, lr={lr}, epochs={num_epochs}"
     )
     plt.tight_layout()
-    output_path_ratio = os.path.join(
-        result_dir,
-        f"HR_smooth_{suffix}_bs{batch_size}_lr{lr}_ep{num_epochs}.png"
-    )
+    if save_name is None:
+        output_path_ratio = os.path.join(
+            result_dir,
+            f"HR_smooth_{suffix}_bs{batch_size}_lr{lr}_ep{num_epochs}.png"
+        )
+    else:
+        output_path_ratio = save_name
     plt.savefig(output_path_ratio)
     plt.close()
 
@@ -192,7 +199,8 @@ def plot_ratio_zoom_last(ratios,
                          result_dir,
                          suffix="unmasked",
                          zoom_len=300,
-                         window=10):
+                         window=10,
+                         save_name=None):
     """
     TODO #3: Only look at the last zoom_len steps of the ratio.
     - Use a very small window (or window=1 for almost no smoothing) to observe end fluctuations.
@@ -227,10 +235,13 @@ def plot_ratio_zoom_last(ratios,
         f"batch_size={batch_size}, lr={lr}, epochs={num_epochs}"
     )
     plt.tight_layout()
-    zoom_path = os.path.join(
-        result_dir,
-        f"HR_zoom_last{zoom_len}_{suffix}_bs{batch_size}_lr{lr}_ep{num_epochs}.png"
-    )
+    if save_name is None:
+        zoom_path = os.path.join(
+            result_dir,
+            f"HR_zoom_last{zoom_len}_{suffix}_bs{batch_size}_lr{lr}_ep{num_epochs}.png"
+        )
+    else:
+        zoom_path = save_name
     plt.savefig(zoom_path)
     plt.close()
 
@@ -244,7 +255,7 @@ def plot_masked_hilbert_and_ratio(hilbert_to_final2,
     - Hilbert: log-scale original curve + smoothed version (optional)
     - ratio: globally smoothed + last 300/100 steps zoom in
     """
-    # Hilbert distance (masked, 原始 log-scale)
+    # Hilbert distance (masked, Original log-scale)
     steps = np.arange(len(hilbert_to_final2))
     plt.figure()
     if len(hilbert_to_final2) > 0:
@@ -438,7 +449,7 @@ def write_stats_in_range(
 # Top-level Analysis Function
 # ============================
 
-def analysis(param_traj, output_log, batch_size, lr, path='./analysis_result/',num_epochs=None,
+def analysis(param_traj, output_log, batch_size, lr, path='./model_result/',num_epochs=None,
              threshold=1e-3, if_mask=True, steps=None,name=None):
     """
     Top-level analysis function:
@@ -451,8 +462,13 @@ def analysis(param_traj, output_log, batch_size, lr, path='./analysis_result/',n
          - Compute masked Hilbert / ratio
          - Plot masked graphs (global + zoom)
          - Write masked text statistics
-      6. Return relevant results (for further complex analysis)
-
+      Return:
+        "hilbert_to_final": hilbert_to_final
+        "ratios_to_final": ratios_to_final
+        "ratios_between": ratios_between
+        "hilbert_to_final_masked": hilbert_to_final2
+        "ratios_to_final_masked": ratios_to_final2
+        "ratios_between_masked": ratios_between2
     For error cases, do not catch with try/except; let errors raise directly:
       - If both num_epochs and steps are None, raise ValueError (consistent with original logic)
     """
@@ -498,7 +514,7 @@ def analysis(param_traj, output_log, batch_size, lr, path='./analysis_result/',n
     hilbert_to_final = metrics_unmasked["hilbert_to_final"]
     ratios_to_final = metrics_unmasked["ratios_to_final"]
     ratios_between = metrics_unmasked["ratios_between"]
-
+    hilbert_to_between=metrics_unmasked["hilbert_to_between"]
     # 2. non-masked graph：Hilbert smoothing + ratio global smoothing + ratio zoom at the end
     plot_hilbert_distance_smoothed(
         hilbert_to_final,
@@ -574,7 +590,8 @@ def analysis(param_traj, output_log, batch_size, lr, path='./analysis_result/',n
         batch_size, lr, num_epochs,
         result_dir,
     )
-
+    
+    masked_hilbert_to_between=metrics_masked["hilbert_between"]
     return {
         "hilbert_to_final": hilbert_to_final,
         "ratios_to_final": ratios_to_final,
@@ -582,4 +599,84 @@ def analysis(param_traj, output_log, batch_size, lr, path='./analysis_result/',n
         "hilbert_to_final_masked": hilbert_to_final2,
         "ratios_to_final_masked": ratios_to_final2,
         "ratios_between_masked": ratios_between2,
+    }
+
+
+
+def compute_hilbert_metrics_to_step(
+    param_traj,
+    start,
+    end,
+    threshold=1e-3,
+    if_mask=False,
+    if_threshold=True,
+    if_self_adaptive=False,
+    w_star=None,
+):
+    """
+    在给定区间 [start, end] 上计算 Hilbert 度量相关量：
+      - hilbert_to_n: 每一步到目标向量 w* 的 Hilbert 距离
+      - ratio_to_n: hilbert_to_n 的相邻比值
+      - hilbert_between: 相邻两步之间的 Hilbert 距离
+      - ratio_between: hilbert_between 的相邻比值
+
+    参数:
+      param_traj: 整条参数轨迹 (list / numpy / torch 都行，只要可切片)
+      start: 子轨迹起始下标（含）
+      end:   子轨迹终止下标（含）
+      threshold, if_mask, if_threshold, if_self_adaptive: 直接传给 hda.analysis_distance_on_cone
+      w_star: 目标向量；如果为 None，默认用 param_traj[end]（也就是子轨迹最后一步）
+    """
+    if end <= start:
+        raise ValueError(f"end ({end}) must be > start ({start}).")
+    if start < 0 or end >= len(param_traj):
+        raise IndexError(
+            f"Invalid range [{start}, {end}] for param_traj of length {len(param_traj)}."
+        )
+
+    # 取子轨迹 [start, end]
+    sub_traj = param_traj[start : end + 1]
+
+    # 默认目标向量用这一段的最后一点 (即第 end 步)
+    if w_star is None:
+        w_star = sub_traj[-1]
+
+    # 直接复用你已有的 cone 分析函数
+    res = hda.analysis_distance_on_cone(
+        param_traj=sub_traj,
+        w_star=w_star,
+        threshold=threshold,
+        ifmask=if_mask,
+        if_threshold=if_threshold,
+        if_self_adaptive=if_self_adaptive,
+    )
+
+    hilbert_to_final = res["hilbert_to_final"]
+    hilbert_between = res["hilbert_between"]
+    hilbert_to_init = res["hilbert_to_init"]  # 如果你想留着也可以一起返回
+
+    # ratio_to_final: 相对于 w* 的 Hilbert 距离的相邻比值
+    ratio_to_final = []
+    for t in range(len(hilbert_to_final) - 1):
+        if hilbert_to_final[t] > 0:
+            ratio_to_final.append(hilbert_to_final[t + 1] / hilbert_to_final[t])
+        else:
+            ratio_to_final.append(float("nan"))
+
+    # ratio_between: 相邻两步之间 Hilbert 距离的相邻比值
+    ratio_between = []
+    for t in range(len(hilbert_between) - 1):
+        if hilbert_between[t] > 0:
+            ratio_between.append(hilbert_between[t + 1] / hilbert_between[t])
+        else:
+            ratio_between.append(float("nan"))
+
+    return {
+        "start": start,
+        "end": end,
+        "hilbert_to_final": hilbert_to_final,
+        "ratio_to_final": ratio_to_final,
+        "hilbert_between": hilbert_between,
+        "ratio_between": ratio_between,
+        "hilbert_to_init": hilbert_to_init,  # 可选，但顺手一起给
     }

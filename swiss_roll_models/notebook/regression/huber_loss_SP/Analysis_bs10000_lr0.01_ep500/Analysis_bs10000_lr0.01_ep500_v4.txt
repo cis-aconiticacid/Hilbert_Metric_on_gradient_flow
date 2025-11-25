@@ -1,0 +1,36 @@
+===== Models Information =====
+
+batch_size=10000, lr=0.01, epochs=500
+
+training log
+
+
+===== No Masking Analysis Results =====
+The first 200 Steps ratio_to_final:
+  Mean ≈ 0.9601
+  Min ≈ 0.6940, Max ≈ 1.0124
+  Q25 ≈ 0.9943, Q75 ≈ 0.9978
+The 200 to 400 Steps ratio_to_final:
+  Mean ≈ 0.9945
+  Min ≈ 0.9850, Max ≈ 0.9996
+  Q25 ≈ 0.9932, Q75 ≈ 0.9964
+
+The last 200 Steps ratio_to_final:
+  Mean ≈ 0.9724
+  Min ≈ 0.0000, Max ≈ 0.9991
+  Q25 ≈ 0.9804, Q75 ≈ 0.9940
+===== Masked Cone Analysis Results =====
+
+First 200 Steps ratio_to_final:
+  Mean ≈ 0.9601
+  Min ≈ 0.6940, Max ≈ 1.0124
+  Q25 ≈ 0.9943, Q75 ≈ 0.9978
+200 to 400 Steps ratio_to_final:
+  Mean ≈ 0.9945
+  Min ≈ 0.9850, Max ≈ 0.9996
+  Q25 ≈ 0.9932, Q75 ≈ 0.9964
+
+Last 200 Steps ratio_to_final:
+  Mean ≈ 0.9724
+  Min ≈ 0.0000, Max ≈ 0.9991
+  Q25 ≈ 0.9804, Q75 ≈ 0.9940
