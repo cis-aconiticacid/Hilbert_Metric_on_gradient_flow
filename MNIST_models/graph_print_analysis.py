@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 import os
 import json
-import Hilbert_computation as hda
+import Hilbert_computation as hc
 
 
 # ============================
@@ -74,7 +74,7 @@ def compute_hilbert_metrics(param_traj,
     if w_star is None:
         w_star = param_traj[-1]
 
-    res = hda.analysis_distance_on_cone(
+    res = hc.analysis_distance_on_cone(
         param_traj=param_traj,
         w_star=w_star,
         threshold=threshold,
