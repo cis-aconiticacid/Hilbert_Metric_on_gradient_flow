@@ -68,7 +68,125 @@ class distance_func:
     """
 
 class hilbert_computation():
-    
+
+    @staticmethod
+    def _prepare_trajectory(
+        param_traj: "Sequence[torch.Tensor]",
+        w_star: torch.Tensor,
+        threshold: Optional[float],
+        ifmask: bool,
+        if_threshold: bool,
+        if_self_adaptive: bool,
+        device: str,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
+        """
+        Prepare and sanitize a trajectory for Hilbert distance computations.
+
+        Returns:
+            ref_traj, w_init, w_star_new, masked_traj, w_star_masked, mask
+        """
+        if device  != 'cuda':
+            print("Elizabeth has not implemented cpu version for hilbert distance analysis yet QWQ, it might be slow.")
+
+        if if_self_adaptive:
+            raise ProcessLookupError(
+                "Elizabeth is too lazy to implement self-adaptive contraction now QWQ, maybe in next paper? Could you help me implement it?"
+            )
+
+        if ifmask:
+            if if_threshold:
+                raise ValueError("cannot set both ifmask and if_threshold to True.")
+            if threshold is None:
+                raise ValueError("ifmask=True but threshold is None.")
+
+            masked_traj, w_star_masked, mask = hilbert_computation.mask_by_wstar_support(
+                param_traj, w_star, threshold
+            )
+            ref_traj = masked_traj          # (T, d_small)
+            w_init = ref_traj[0]            # initial point
+            w_star_new = w_star_masked      # target point
+        else:
+            ref_traj = torch.stack(
+                [p.detach().clone().view(-1) for p in param_traj],
+                dim=0
+            )  # (T, D)
+            if if_threshold:
+                if threshold is None:
+                    raise ValueError("if_threshold=True but threshold is None.")
+                with torch.no_grad():
+                    w_flat = w_star.detach().clone().view(-1)
+                    positive = w_flat[w_flat > 0]
+                    if positive.numel() > 0:
+                        eps = positive.min().item() * 1e-3
+                    else:
+                        eps = 1e-10
+                ref_traj = torch.clamp(ref_traj, min=eps)
+
+            w_init = ref_traj[0]
+            w_star_new = ref_traj[-1]
+            masked_traj = None
+            w_star_masked = None
+            mask = None
+
+        eps = 1e-10
+        ref_traj = ref_traj.to(dtype=torch.float64)
+
+        w_init = w_init.to(dtype=torch.float64)
+        w_star_new = w_star_new.to(dtype=torch.float64)
+
+        ref_traj = torch.clamp(ref_traj, min=eps)
+        w_init = torch.clamp(w_init, min=eps)
+        w_star_new = torch.clamp(w_star_new, min=eps)
+
+        return ref_traj, w_init, w_star_new, masked_traj, w_star_masked, mask
+
+    @staticmethod
+    def _hilbert_distances_to_target(ref_traj: torch.Tensor, target: torch.Tensor) -> List[float]:
+        ratio = ref_traj / target  # broadcast (T,D) / (D,)
+        max_r, _ = ratio.max(dim=1)  # (T,)
+        min_r, _ = ratio.min(dim=1)
+        return (max_r.log() - min_r.log()).tolist()
+
+    @staticmethod
+    def _hilbert_distances_between_consecutive(ref_traj: torch.Tensor) -> List[float]:
+        if ref_traj.shape[0] < 2:
+            print("Warning: traj length less than 2, no hilbert_between computed.")
+            return []
+
+        ratio_between = ref_traj[1:] / ref_traj[:-1]   # (T-1, D)
+        max_r, _ = ratio_between.max(dim=1)
+        min_r, _ = ratio_between.min(dim=1)
+        return (max_r.log() - min_r.log()).tolist()
+
+    @staticmethod
+    def compute_hilbert_to_w_star(
+        trajectory: "Sequence[torch.Tensor]",
+        w_star: torch.Tensor,
+        threshold: Optional[float] = None,
+        ifmask: bool = False,
+        if_self_adaptive: bool = False,
+        if_threshold: bool = False,
+        device: str = "cuda",
+    ) -> List[float]:
+        ref_traj, _, w_star_new, _, _, _ = hilbert_computation._prepare_trajectory(
+            trajectory, w_star, threshold, ifmask, if_threshold, if_self_adaptive, device
+        )
+        return hilbert_computation._hilbert_distances_to_target(ref_traj, w_star_new)
+
+    @staticmethod
+    def compute_hilbert_between_steps(
+        trajectory: "Sequence[torch.Tensor]",
+        threshold: Optional[float] = None,
+        ifmask: bool = False,
+        if_self_adaptive: bool = False,
+        if_threshold: bool = False,
+        device: str = "cuda",
+    ) -> List[float]:
+        ref_traj, _, _, _, _, _ = hilbert_computation._prepare_trajectory(
+            trajectory, trajectory[-1], threshold, ifmask, if_threshold, if_self_adaptive, device
+        )
+        return hilbert_computation._hilbert_distances_between_consecutive(ref_traj)
+
     @staticmethod
     def mask_by_wstar_support(param_traj, w_star, threshold):
         """
@@ -128,86 +246,15 @@ class hilbert_computation():
                 "mask": Optional[torch.BoolTensor],
             }
         """
-        if device  != 'cuda':
-            print("Elizabeth has not implemented cpu version for hilbert distance analysis yet QWQ, it might be slow.")
+        ref_traj, w_init, w_star_new, masked_traj, w_star_masked, mask = hilbert_computation._prepare_trajectory(
+            param_traj, w_star, threshold, ifmask, if_threshold, if_self_adaptive, device
+        )
 
+        T, _ = ref_traj.shape
 
-        if if_self_adaptive:
-            raise ProcessLookupError(
-                "Elizabeth is too lazy to implement self-adaptive contraction now QWQ, maybe in next paper? Could you help me implement it?"
-            )
-
-        # --------- 1. Construct ref_traj, w_init, w_star_new ----------
-        if ifmask:
-            if if_threshold:
-                raise ValueError("cannot set both ifmask and if_threshold to True.")
-            if threshold is None:
-                raise ValueError("ifmask=True but threshold is None.")
-
-            masked_traj, w_star_masked, mask = hilbert_computation.mask_by_wstar_support(
-                param_traj, w_star, threshold
-            )
-            ref_traj = masked_traj          # (T, d_small)
-            w_init = ref_traj[0]            # initial point
-            w_star_new = w_star_masked      # target point
-        else:
-            ref_traj = torch.stack(
-                [p.detach().clone().view(-1) for p in param_traj],
-                dim=0
-            )  # (T, D)
-            if if_threshold:
-                if threshold is None:
-                    raise ValueError("if_threshold=True but threshold is None.")
-                with torch.no_grad():
-                    w_flat = w_star.detach().clone().view(-1)
-                    positive = w_flat[w_flat > 0]
-                    if positive.numel() > 0:
-                        eps = positive.min().item() * 1e-3
-                    else:
-                        eps = 1e-10
-                ref_traj = torch.clamp(ref_traj, min=eps)
-
-            w_init = ref_traj[0]
-            w_star_new = ref_traj[-1]
-            masked_traj = None
-            w_star_masked = None
-            mask = None
-
-        # --------- 2. Unified dtype + eps clamp to avoid zeros ---------
-        eps = 1e-10
-        ref_traj = ref_traj.to(dtype=torch.float64)
-
-        w_init = w_init.to(dtype=torch.float64)
-        w_star_new = w_star_new.to(dtype=torch.float64)
-
-        ref_traj = torch.clamp(ref_traj, min=eps)
-        w_init = torch.clamp(w_init, min=eps)
-        w_star_new = torch.clamp(w_star_new, min=eps)
-
-        T, D = ref_traj.shape
-
-        # --------- 3. Computation of d_H(w_t, w*) ----------
-        # ratio_final: (T, D)
-        ratio_final = ref_traj / w_star_new  # broadcast (T,D) / (D,)
-        max_r_f, _ = ratio_final.max(dim=1)  # (T,)
-        min_r_f, _ = ratio_final.min(dim=1)
-        hilbert_to_final = (max_r_f.log() - min_r_f.log()).tolist()
-
-        # --------- 4. Computation of d_H(w_t, w_0) ----------
-        ratio_init = ref_traj / w_init      # (T, D)
-        max_r_i, _ = ratio_init.max(dim=1)
-        min_r_i, _ = ratio_init.min(dim=1)
-        hilbert_to_init = (max_r_i.log() - min_r_i.log()).tolist()
-
-        # --------- 5. Computation of d_H(w_t, w_{t-1}) ----------
-        if T >= 2:
-            ratio_between = ref_traj[1:] / ref_traj[:-1]   # (T-1, D)
-            max_r_b, _ = ratio_between.max(dim=1)
-            min_r_b, _ = ratio_between.min(dim=1)
-            hilbert_between = (max_r_b.log() - min_r_b.log()).tolist()
-        else:
-            hilbert_between = []
-            print("Warning: traj length less than 2, no hilbert_between computed.")
+        hilbert_to_final = hilbert_computation._hilbert_distances_to_target(ref_traj, w_star_new)
+        hilbert_to_init = hilbert_computation._hilbert_distances_to_target(ref_traj, w_init)
+        hilbert_between = hilbert_computation._hilbert_distances_between_consecutive(ref_traj)
 
         return {
             "hilbert_to_final": hilbert_to_final,
