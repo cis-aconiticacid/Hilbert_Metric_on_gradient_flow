@@ -5,13 +5,6 @@ import sys
 from pathlib import Path
 import os
 import json
-
-# 把 swiss_roll_models 加进来（如果存在）
-for p in [Path.cwd(), *Path.cwd().parents]:
-    if (p / "swiss_roll_models").exists():
-        sys.path.insert(0, str(p))
-        break
-
 import Hilbert_computation as hda
 
 
