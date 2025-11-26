@@ -12,7 +12,7 @@ for p in [Path.cwd(), *Path.cwd().parents]:
         sys.path.insert(0, str(p))
         break
 
-from environment.hilbert_distance import hilbert_analysis as hda
+import Hilbert_computation as hda
 
 
 # ============================
