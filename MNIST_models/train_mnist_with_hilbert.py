@@ -48,6 +48,7 @@ class HBModel_MNIST:
         batch_size=128,
         lr=1e-2,
         device=None,
+        initial_vector=None,
         if_regularize=True,
         if_decay=False,
         loss_type="ce",
@@ -55,6 +56,7 @@ class HBModel_MNIST:
         regularization_coeff=1e-4,
         if_regularize_all=False,
         trajectory_save_path=None,
+        seed=42,
     ):
         """Train MNIST classifier while tracking output-layer trajectories and optional regularization.
 
@@ -65,6 +67,7 @@ class HBModel_MNIST:
             batch_size: Mini-batch size for training.
             lr: Learning rate for the SGD optimizer.
             device: Optional device override (defaults to CUDA when available).
+            initial_vector: Optional 1D vector to initialize the output layer weights (flattened order).
             if_regularize: Whether to apply weight decay regularization.
             if_decay: Legacy flag preserved for compatibility; when True applies decay to all parameters.
             loss_type: Loss choice: "ce", "huber", or "mse".
@@ -72,6 +75,7 @@ class HBModel_MNIST:
             regularization_coeff: Weight decay coefficient when regularization is enabled.
             if_regularize_all: When True, apply regularization to all parameters; otherwise only the output layer.
             trajectory_save_path: Absolute path to save the parameter trajectory; when None, do not save.
+            seed: Optional random seed for reproducibility; when None, leave the current RNG state unchanged.
         """
         # ------------ 基本参数检查 ------------
         if (num_epochs is None) and (max_steps is None):
@@ -91,7 +95,8 @@ class HBModel_MNIST:
             torch.backends.cudnn.benchmark = True
 
         # ---- Random seed (for reproducibility) ----
-        torch.manual_seed(42)
+        if seed is not None:
+            torch.manual_seed(seed)
 
         # ---- MNIST data ----
         transform = transforms.Compose([
@@ -115,6 +120,18 @@ class HBModel_MNIST:
         )
 
         model = MNISTNet(number_of_layerss=number_of_layerss).to(device)
+
+        if initial_vector is not None:
+            init_tensor = torch.as_tensor(initial_vector, dtype=model.output_layer.weight.dtype)
+            init_tensor = init_tensor.flatten()
+            if init_tensor.numel() != model.output_layer.weight.numel():
+                raise ValueError(
+                    "initial_vector has incorrect size: "
+                    f"expected {model.output_layer.weight.numel()}, got {init_tensor.numel()}"
+                )
+            init_tensor = init_tensor.view_as(model.output_layer.weight).to(device)
+            with torch.no_grad():
+                model.output_layer.weight.copy_(init_tensor)
 
         # 根据 loss_type 选择不同的 criterion
         if loss_type == "ce":
@@ -255,4 +272,60 @@ class HBModel_MNIST:
             "lr": lr,
             "epochs_or_steps": f"steps{max_steps}" if max_steps is not None else f"ep{num_epochs}",
         }
+
+    def mixed_hilber(
+        n_runs,
+        *,
+        initial_vector=None,
+        seeds=None,
+        **train_kwargs,
+    ):
+        """Run multiple trainings that share the same initial output-layer vector.
+
+        Args:
+            n_runs: Number of independent training runs to execute (>=1).
+            initial_vector: Optional 1D vector used to initialize every run. When None,
+                a fresh model is constructed to sample a shared initial vector.
+            seeds: Optional list of seeds, one per run, to forward to ``train_mnist_with_hilbert``.
+                When provided, ``seed`` must not be set inside ``train_kwargs``.
+            **train_kwargs: Arguments forwarded to ``train_mnist_with_hilbert``. Must contain
+                ``number_of_layerss`` so the default initial vector can be generated when needed.
+
+        Returns:
+            A list of result dictionaries returned by ``train_mnist_with_hilbert`` for each run.
+        """
+        if n_runs < 1:
+            raise ValueError("n_runs must be at least 1.")
+
+        if "number_of_layerss" not in train_kwargs:
+            raise ValueError("train_kwargs must include 'number_of_layerss' for model construction.")
+
+        if seeds is not None:
+            if "seed" in train_kwargs:
+                raise ValueError("Do not specify both seeds list and a fixed 'seed' in train_kwargs.")
+            if len(seeds) != n_runs:
+                raise ValueError("Length of seeds must match n_runs when provided.")
+
+        base_init = initial_vector
+        if base_init is None:
+            temp_model = HBModel_MNIST.MNISTNet(number_of_layerss=train_kwargs["number_of_layerss"])
+            with torch.no_grad():
+                base_init = temp_model.output_layer.weight.detach().reshape(-1).clone()
+        else:
+            base_init = torch.as_tensor(base_init).detach().flatten()
+
+        results = []
+        for run_idx in range(n_runs):
+            per_run_kwargs = dict(train_kwargs)
+            if seeds is not None:
+                per_run_kwargs["seed"] = seeds[run_idx]
+
+            results.append(
+                HBModel_MNIST.train_mnist_with_hilbert(
+                    initial_vector=base_init.clone(),
+                    **per_run_kwargs,
+                )
+            )
+
+        return results
 
