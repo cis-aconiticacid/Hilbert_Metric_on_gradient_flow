@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 import os
 import json
-import Hilbert_computation as hc
+from Hilbert_computation import hilbert_computation as hc
 
 
 # ============================
