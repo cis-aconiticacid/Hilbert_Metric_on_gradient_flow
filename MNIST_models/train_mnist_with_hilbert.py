@@ -1,4 +1,6 @@
 import math
+from typing import Any, Dict, List, Optional, Sequence
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -42,40 +44,43 @@ class HBModel_MNIST:
             return logits
 
     def train_mnist_with_hilbert(
-        number_of_layerss,
-        num_epochs=None,      # 👈 经典 epoch 模式
-        max_steps=None,       # 👈 固定 step 数模式
-        batch_size=128,
-        lr=1e-2,
-        device=None,
-        initial_vector=None,
-        if_regularize=True,
-        if_decay=False,
-        loss_type="ce",
-        huber_beta=1.0,
-        regularization_coeff=1e-4,
-        if_regularize_all=False,
-        trajectory_save_path=None,
-        seed=42,
-    ):
+        number_of_layerss: int,
+        num_epochs: Optional[int] = None,      # 👈 经典 epoch 模式
+        max_steps: Optional[int] = None,       # 👈 固定 step 数模式
+        batch_size: int = 128,
+        lr: float = 1e-2,
+        device: Optional[str] = None,
+        initial_vector: Optional[Sequence[float]] = None,
+        if_regularize: bool = True,
+        if_decay: bool = False,
+        loss_type: str = "ce",
+        huber_beta: float = 1.0,
+        regularization_coeff: float = 1e-4,
+        if_regularize_all: bool = False,
+        trajectory_save_path: Optional[str] = None,
+        seed: Optional[int] = 42,
+    ) -> Dict[str, Any]:
         """Train MNIST classifier while tracking output-layer trajectories and optional regularization.
 
         Args:
-            number_of_layerss: Number of hidden linear/ReLU blocks to include (>=1).
-            num_epochs: Number of full epochs to run; mutually exclusive with max_steps.
-            max_steps: Fixed number of training steps when set; mutually exclusive with num_epochs.
-            batch_size: Mini-batch size for training.
-            lr: Learning rate for the SGD optimizer.
-            device: Optional device override (defaults to CUDA when available).
-            initial_vector: Optional 1D vector to initialize the output layer weights (flattened order).
-            if_regularize: Whether to apply weight decay regularization.
-            if_decay: Legacy flag preserved for compatibility; when True applies decay to all parameters.
-            loss_type: Loss choice: "ce", "huber", or "mse".
-            huber_beta: Beta parameter for SmoothL1 loss when loss_type="huber".
-            regularization_coeff: Weight decay coefficient when regularization is enabled.
-            if_regularize_all: When True, apply regularization to all parameters; otherwise only the output layer.
-            trajectory_save_path: Absolute path to save the parameter trajectory; when None, do not save.
-            seed: Optional random seed for reproducibility; when None, leave the current RNG state unchanged.
+            number_of_layerss (int): Number of hidden linear/ReLU blocks to include (>=1).
+            num_epochs (Optional[int]): Number of full epochs to run; mutually exclusive with ``max_steps``.
+            max_steps (Optional[int]): Fixed number of training steps when set; mutually exclusive with ``num_epochs``.
+            batch_size (int): Mini-batch size for training.
+            lr (float): Learning rate for the SGD optimizer.
+            device (Optional[str]): Optional device override (defaults to CUDA when available).
+            initial_vector (Optional[Sequence[float]]): Optional 1D vector to initialize the output layer weights (flattened order).
+            if_regularize (bool): Whether to apply weight decay regularization.
+            if_decay (bool): Legacy flag preserved for compatibility; when ``True`` applies decay to all parameters.
+            loss_type (str): Loss choice: ``"ce"``, ``"huber"``, or ``"mse"``.
+            huber_beta (float): Beta parameter for SmoothL1 loss when ``loss_type="huber"``.
+            regularization_coeff (float): Weight decay coefficient when regularization is enabled.
+            if_regularize_all (bool): When ``True``, apply regularization to all parameters; otherwise only the output layer.
+            trajectory_save_path (Optional[str]): Absolute path to save the parameter trajectory; when ``None``, do not save.
+            seed (Optional[int]): Random seed for reproducibility; when ``None``, leave the current RNG state unchanged.
+
+        Returns:
+            Dict[str, Any]: Training artefacts including the trained model, recorded trajectory, and logging info.
         """
         # ------------ 基本参数检查 ------------
         if (num_epochs is None) and (max_steps is None):
@@ -274,25 +279,26 @@ class HBModel_MNIST:
         }
 
     def mixed_hilber(
-        n_runs,
+        n_runs: int,
         *,
-        initial_vector=None,
-        seeds=None,
-        **train_kwargs,
-    ):
+        initial_vector: Optional[Sequence[float]] = None,
+        seeds: Optional[Sequence[int]] = None,
+        **train_kwargs: Any,
+    ) -> List[Dict[str, Any]]:
         """Run multiple trainings that share the same initial output-layer vector.
 
         Args:
-            n_runs: Number of independent training runs to execute (>=1).
-            initial_vector: Optional 1D vector used to initialize every run. When None,
+            n_runs (int): Number of independent training runs to execute (>=1).
+            initial_vector (Optional[Sequence[float]]): Optional 1D vector used to initialize every run. When ``None``,
                 a fresh model is constructed to sample a shared initial vector.
-            seeds: Optional list of seeds, one per run, to forward to ``train_mnist_with_hilbert``.
-                When provided, ``seed`` must not be set inside ``train_kwargs``.
+            seeds (Optional[Sequence[int]]): Optional list of seeds, one per run, to forward to ``train_mnist_with_hilbert``.
+                When provided, ``seed`` must not be set inside ``train_kwargs`` and ``len(seeds)`` must equal ``n_runs``.
             **train_kwargs: Arguments forwarded to ``train_mnist_with_hilbert``. Must contain
                 ``number_of_layerss`` so the default initial vector can be generated when needed.
 
         Returns:
-            A list of result dictionaries returned by ``train_mnist_with_hilbert`` for each run.
+            List[Dict[str, Any]]: The collection of training result dictionaries returned by
+            ``train_mnist_with_hilbert`` for each run, preserving run order.
         """
         if n_runs < 1:
             raise ValueError("n_runs must be at least 1.")
