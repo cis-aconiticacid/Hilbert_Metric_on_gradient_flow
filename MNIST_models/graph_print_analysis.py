@@ -1,10 +1,12 @@
+import json
 import math
+import os
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import numpy as np
-import sys
-from pathlib import Path
-import os
-import json
+import torch
+
 import Hilbert_computation as hc
 
 
@@ -60,260 +62,309 @@ def describe_segment(vals):
     }
 
 
-def compute_hilbert_metrics(param_traj,
-                            threshold=1e-3,
-                            if_mask=False,
-                            if_threshold=True,
-                            if_self_adaptive=False,
-                            w_star=None):
-    """
-    调 hda.analysis_distance_on_cone，拿到：
-      - hilbert_to_final, hilbert_between, hilbert_to_init
-      - ratios_between（基于 hilbert_between）
-    """
-    if w_star is None:
-        w_star = param_traj[-1]
+# ============================
+# New helper functions
+# ============================
 
-    res = hc.analysis_distance_on_cone(
-        param_traj=param_traj,
-        w_star=w_star,
+def plot_hb(
+    values,
+    *,
+    if_smooth=True,
+    smooth_window=50,
+    max_points=1000,
+    if_plot=False,
+    if_save=True,
+    saved_name="hilbert_plot.png",
+    saved_path=".",
+    if_show=False,
+):
+    """Plot Hilbert metrics with optional smoothing and saving.
+
+    Args:
+        values: 1D array-like Hilbert metric values.
+        if_smooth: Whether to smooth the curve with a moving average.
+        smooth_window: Window size for smoothing.
+        max_points: Maximum number of points to keep after downsampling.
+        if_plot: Whether to render the plot (useful in notebooks).
+        if_save: Whether to save the plot.
+        saved_name: File name for saving.
+        saved_path: Directory for saving (relative path is supported).
+        if_show: Whether to call ``plt.show`` after plotting.
+    """
+
+    values = np.asarray(values, dtype=float)
+    plt.figure()
+
+    if if_smooth:
+        x_axis, y_axis = moving_average_xy(values, window=max(1, smooth_window))
+    else:
+        x_axis = np.arange(len(values), dtype=float)
+        y_axis = values
+
+    x_axis, y_axis = downsample_xy(x_axis, y_axis, max_points=max_points)
+
+    if len(y_axis) > 0:
+        plt.plot(x_axis, y_axis, linewidth=2)
+    plt.xlabel("step t")
+    plt.ylabel("Hilbert metric")
+    plt.axhline(1.0, linestyle="--", linewidth=1)
+    plt.tight_layout()
+
+    save_dir = Path(saved_path)
+    if if_save:
+        save_dir.mkdir(parents=True, exist_ok=True)
+        plt.savefig(save_dir / saved_name)
+
+    if if_plot or if_show:
+        plt.show()
+
+    plt.close()
+
+
+def write_stats(
+    values,
+    *,
+    if_print=False,
+    if_save=True,
+    saved_name="hilbert_stats.txt",
+    saved_path=".",
+):
+    """Write statistics for a Hilbert metric sequence.
+
+    Returns the generated report string.
+    """
+
+    sections = ["===== Hilbert Metric Statistics ====="]
+    segments = [
+        ("first 200", values[:200]),
+        ("200 to 400", values[200:400]),
+        ("last 200", values[-200:]),
+    ]
+
+    for title, segment in segments:
+        desc = describe_segment(segment)
+        sections.append(f"\nThe {title} steps:")
+        if desc is None:
+            sections.append("  No data available.")
+            continue
+        sections.append(f"  Mean ≈ {desc['mean']:.4f}")
+        sections.append(
+            f"  Min ≈ {desc['min']:.4f}, Max ≈ {desc['max']:.4f}"
+        )
+        sections.append(
+            f"  Q25 ≈ {desc['q25']:.4f}, Q75 ≈ {desc['q75']:.4f}"
+        )
+
+    report = "\n".join(sections) + "\n"
+
+    if if_print:
+        print(report)
+
+    if if_save:
+        save_dir = Path(saved_path)
+        save_dir.mkdir(parents=True, exist_ok=True)
+        with open(save_dir / saved_name, "w", encoding="utf-8") as f:
+            f.write(report)
+
+    return report
+
+
+def _hilbert_to_target_sequence(trajectory, w_star):
+    """Compute Hilbert distances between each step and ``w_star``.
+
+    This helper calls ``hc.compute_hilbert_between_steps`` on pairs of
+    ``(step, w_star)`` to respect the instruction of using that API.
+    """
+
+    distances = []
+    for vect in trajectory:
+        pair = [vect, w_star]
+        res = hc.compute_hilbert_between_steps(pair)
+        distances.append(res[0] if res else float("nan"))
+    return distances
+
+
+def analysis_to_w_star(
+    trajectory,
+    w_star,
+    if_plot,
+    if_writes,
+    *,
+    if_save=True,
+    save_name="analysis_to_w_star",
+    saved_path=".",
+    if_show=False,
+    if_masked=True,
+    if_unmasked=True,
+    threshold=1e-10,
+):
+    """Analyze Hilbert distances between trajectory steps and ``w_star``.
+
+    Masking is applied relative to ``w_star`` via ``hc.mask_by_wstar_support``
+    when requested.
+    """
+
+    results = {}
+    save_dir = Path(saved_path)
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    if if_unmasked:
+        unmasked = _hilbert_to_target_sequence(trajectory, w_star)
+        results["hilbert_to_w_star"] = unmasked
+
+        if if_plot:
+            plot_hb(
+                unmasked,
+                saved_name=f"{save_name}_to_w_star.png",
+                saved_path=save_dir,
+                if_show=if_show,
+            )
+
+        if if_writes:
+            results["unmasked_stats"] = write_stats(
+                unmasked,
+                saved_name=f"{save_name}_to_w_star_stats.txt",
+                saved_path=save_dir,
+            )
+
+        if if_save:
+            with open(save_dir / f"{save_name}_to_w_star.json", "w", encoding="utf-8") as jf:
+                json.dump(unmasked, jf, ensure_ascii=False)
+
+    if if_masked:
+        masked_traj, masked_w_star, _ = hc.mask_by_wstar_support(
+            trajectory, w_star, threshold
+        )
+        masked_list = [masked_traj[i] for i in range(masked_traj.shape[0])]
+        masked = _hilbert_to_target_sequence(masked_list, masked_w_star)
+        results["hilbert_to_w_star_masked"] = masked
+
+        if if_plot:
+            plot_hb(
+                masked,
+                saved_name=f"{save_name}_to_w_star_masked.png",
+                saved_path=save_dir,
+                if_show=if_show,
+            )
+
+        if if_writes:
+            results["masked_stats"] = write_stats(
+                masked,
+                saved_name=f"{save_name}_to_w_star_masked_stats.txt",
+                saved_path=save_dir,
+            )
+
+        if if_save:
+            with open(
+                save_dir / f"{save_name}_to_w_star_masked.json",
+                "w",
+                encoding="utf-8",
+            ) as jf:
+                json.dump(masked, jf, ensure_ascii=False)
+
+    return results
+
+
+def analysis_to_w_between(
+    trajectory,
+    if_plot,
+    if_writes,
+    *,
+    if_save=True,
+    save_name="analysis_between",
+    saved_path=".",
+    if_show=False,
+    threshold=1e-10,
+    if_masked=True,
+    if_self_adaptive=False,
+):
+    """Analyze Hilbert distances between consecutive trajectory steps."""
+
+    results = {}
+    save_dir = Path(saved_path)
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    unmasked_between = hc.compute_hilbert_between_steps(
+        trajectory,
         threshold=threshold,
-        ifmask=if_mask,
-        if_threshold=if_threshold,
+        ifmask=False,
         if_self_adaptive=if_self_adaptive,
+        if_threshold=True,
     )
-    hilbert_to_final = res["hilbert_to_final"]
-    hilbert_between = res["hilbert_between"]
-    hilbert_to_init = res["hilbert_to_init"]
+    results["hilbert_between"] = unmasked_between
 
-    # 我们现在只关心 between 的 ratio
-    ratios_between = []
-    for t in range(len(hilbert_between) - 1):
-        if hilbert_between[t] > 0:
-            ratios_between.append(hilbert_between[t + 1] / hilbert_between[t])
-        else:
-            ratios_between.append(float("nan"))
+    if if_plot:
+        plot_hb(
+            unmasked_between,
+            saved_name=f"{save_name}_between.png",
+            saved_path=save_dir,
+            if_show=if_show,
+        )
 
-    return {
-        "hilbert_to_final": hilbert_to_final,
-        "hilbert_between": hilbert_between,
-        "hilbert_to_init": hilbert_to_init,
-        "ratios_between": ratios_between,
-    }
+    if if_writes:
+        results["unmasked_stats"] = write_stats(
+            unmasked_between,
+            saved_name=f"{save_name}_between_stats.txt",
+            saved_path=save_dir,
+        )
 
+    if if_save:
+        with open(save_dir / f"{save_name}_between.json", "w", encoding="utf-8") as jf:
+            json.dump(unmasked_between, jf, ensure_ascii=False)
 
-# ============================
-# Plotting functions (between 专用)
-# ============================
+    if if_masked:
+        masked_between = hc.compute_hilbert_between_steps(
+            trajectory,
+            threshold=threshold,
+            ifmask=True,
+            if_self_adaptive=if_self_adaptive,
+            if_threshold=False,
+        )
+        results["hilbert_between_masked"] = masked_between
 
-def plot_between_global_smoothed(ratios_between,
-                                 batch_size, lr, num_epochs,
-                                 result_dir,
-                                 suffix="unmasked"):
-    """
-    全局平滑后的 between ratio 图
-    """
-    plt.xscale('log')
-    plt.yscale('log')
-    ratio_array = np.array(ratios_between, dtype=float)
-    bad = ~np.isfinite(ratio_array)
-    ratio_array[bad] = 1.0  # NaN/inf 先替成 1
+        if if_plot:
+            plot_hb(
+                masked_between,
+                saved_name=f"{save_name}_between_masked.png",
+                saved_path=save_dir,
+                if_show=if_show,
+            )
 
-    window_r = max(50, len(ratio_array) // 50)
-    x_r, ratio_smooth = moving_average_xy(ratio_array, window=window_r)
+        if if_writes:
+            results["masked_stats"] = write_stats(
+                masked_between,
+                saved_name=f"{save_name}_between_masked_stats.txt",
+                saved_path=save_dir,
+            )
 
-    x_r_ds, ratio_ds = downsample_xy(x_r, ratio_smooth, max_points=1000)
+        if if_save:
+            with open(
+                save_dir / f"{save_name}_between_masked.json",
+                "w",
+                encoding="utf-8",
+            ) as jf:
+                json.dump(masked_between, jf, ensure_ascii=False)
 
-    plt.figure()
-    if len(ratio_ds) > 0:
-        plt.plot(x_r_ds, ratio_ds, linewidth=2)
-    plt.xlabel("step t")
-    plt.ylabel("smoothed ratio_between(t)")
-    plt.axhline(1.0, linestyle="--")
-    plt.title(
-        f"Hilbert contraction between steps (smoothed, {suffix})\n"
-        f"batch_size={batch_size}, lr={lr}, epochs={num_epochs}"
-    )
-    plt.tight_layout()
-    out_path = os.path.join(
-        result_dir,
-        f"HB_smooth_between_{suffix}_bs{batch_size}_lr{lr}_ep{num_epochs}.png",
-    )
-    plt.savefig(out_path)
-    plt.close()
-
-
-def plot_between_zoom_last(ratios_between,
-                           batch_size, lr, num_epochs,
-                           result_dir,
-                           suffix="unmasked",
-                           zoom_len=300,
-                           window=10):
-    """
-    只看最后 zoom_len 步的 between ratio，窗口小一点看末端震荡
-    """
-    ratio_array = np.array(ratios_between, dtype=float)
-    bad = ~np.isfinite(ratio_array)
-    ratio_array[bad] = 1.0
-    plt.xscale('log')
-    plt.yscale('log')
-    n = len(ratio_array)
-    if n == 0:
-        return
-
-    start_idx = max(0, n - zoom_len)
-    ratio_zoom = ratio_array[start_idx:]
-
-    window = min(window, len(ratio_zoom)) if window > 1 else 1
-    x_zoom, ratio_zoom_smooth = moving_average_xy(ratio_zoom, window=window)
-    x_zoom_real = x_zoom + start_idx
-
-    plt.figure()
-    if len(ratio_zoom_smooth) > 0:
-        plt.plot(x_zoom_real, ratio_zoom_smooth, linewidth=1.5)
-    plt.axhline(1.0, linestyle="--")
-    plt.xlabel("step t")
-    plt.ylabel(f"ratio_between (last {zoom_len} steps)")
-    plt.title(
-        f"Hilbert contraction between steps (zoom, {suffix})\n"
-        f"batch_size={batch_size}, lr={lr}, epochs={num_epochs}"
-    )
-    plt.tight_layout()
-    out_path = os.path.join(
-        result_dir,
-        f"HB_zoom_last{zoom_len}_{suffix}_bs{batch_size}_lr{lr}_ep{num_epochs}.png",
-    )
-    plt.savefig(out_path)
-    plt.close()
-
-
-def plot_masked_between(ratios_between2,
-                        batch_size, lr, num_epochs,
-                        result_dir):
-    """
-    masked cone 的 between 图：全局 + 两个 zoom
-    """
-    plot_between_global_smoothed(
-        ratios_between2,
-        batch_size, lr, num_epochs,
-        result_dir,
-        suffix="masked",
-    )
-    plot_between_zoom_last(
-        ratios_between2,
-        batch_size, lr, num_epochs,
-        result_dir,
-        suffix="masked",
-        zoom_len=300,
-        window=10,
-    )
-    plot_between_zoom_last(
-        ratios_between2,
-        batch_size, lr, num_epochs,
-        result_dir,
-        suffix="masked_last100",
-        zoom_len=100,
-        window=5,
-    )
-
-
-# ============================
-# Text Writing (Statistics) Functions
-# ============================
-
-def write_unmasked_between_stats(f, ratios_between):
-    """
-    只写 between 的统计：
-    - 前 200
-    - 200–400
-    - 最后 200
-    """
-    f.write("===== No Masking (Between) Analysis Results =====\n")
-
-    front_200 = ratios_between[:200]
-    medium_200_400 = ratios_between[200:400]
-    tail_200 = ratios_between[-200:]
-
-    f.write("The first 200 steps ratios_between:\n")
-    desc_front = describe_segment(front_200)
-    if desc_front is not None:
-        f.write(f"  Mean ≈ {desc_front['mean']:.4f}\n")
-        f.write(f"  Min ≈ {desc_front['min']:.4f}, Max ≈ {desc_front['max']:.4f}\n")
-        f.write(f"  Q25 ≈ {desc_front['q25']:.4f}, Q75 ≈ {desc_front['q75']:.4f}\n")
-
-    f.write("The 200 to 400 steps ratios_between:\n")
-    desc_mid = describe_segment(medium_200_400)
-    if desc_mid is not None:
-        f.write(f"  Mean ≈ {desc_mid['mean']:.4f}\n")
-        f.write(f"  Min ≈ {desc_mid['min']:.4f}, Max ≈ {desc_mid['max']:.4f}\n")
-        f.write(f"  Q25 ≈ {desc_mid['q25']:.4f}, Q75 ≈ {desc_mid['q75']:.4f}\n")
-
-    f.write("\nThe last 200 steps ratios_between:\n")
-    desc_tail = describe_segment(tail_200)
-    if desc_tail is not None:
-        f.write(f"  Mean ≈ {desc_tail['mean']:.4f}\n")
-        f.write(f"  Min ≈ {desc_tail['min']:.4f}, Max ≈ {desc_tail['max']:.4f}\n")
-        f.write(f"  Q25 ≈ {desc_tail['q25']:.4f}, Q75 ≈ {desc_tail['q75']:.4f}\n")
-
-
-def write_masked_between_stats(f, ratios_between2):
-    """
-    Masked Cone 的 between 统计
-    """
-    f.write("\n===== Masked Cone (Between) Analysis Results =====\n")
-
-    front_200_2 = ratios_between2[:200]
-    medium_200_400_2 = ratios_between2[200:400]
-    tail_200_2 = ratios_between2[-200:]
-
-    f.write("\nFirst 200 steps ratios_between:\n")
-    desc_front2 = describe_segment(front_200_2)
-    if desc_front2 is not None:
-        f.write(f"  Mean ≈ {desc_front2['mean']:.4f}\n")
-        f.write(f"  Min ≈ {desc_front2['min']:.4f}, Max ≈ {desc_front2['max']:.4f}\n")
-        f.write(f"  Q25 ≈ {desc_front2['q25']:.4f}, Q75 ≈ {desc_front2['q75']:.4f}\n")
-
-    f.write("200 to 400 steps ratios_between:\n")
-    desc_mid2 = describe_segment(medium_200_400_2)
-    if desc_mid2 is not None:
-        f.write(f"  Mean ≈ {desc_mid2['mean']:.4f}\n")
-        f.write(f"  Min ≈ {desc_mid2['min']:.4f}, Max ≈ {desc_mid2['max']:.4f}\n")
-        f.write(f"  Q25 ≈ {desc_mid2['q25']:.4f}, Q75 ≈ {desc_mid2['q75']:.4f}\n")
-
-    f.write("\nLast 200 steps ratios_between:\n")
-    desc_tail2 = describe_segment(tail_200_2)
-    if desc_tail2 is not None:
-        f.write(f"  Mean ≈ {desc_tail2['mean']:.4f}\n")
-        f.write(f"  Min ≈ {desc_tail2['min']:.4f}, Max ≈ {desc_tail2['max']:.4f}\n")
-        f.write(f"  Q25 ≈ {desc_tail2['q25']:.4f}, Q75 ≈ {desc_tail2['q75']:.4f}\n")
+    return results
 
 
 # ============================
 # Top-level Analysis Function
 # ============================
 
-def analysis(param_traj,
-             output_log,
-             batch_size,
-             lr,
-             path='./analysis_result',
-             num_epochs=None,
-             threshold=1e-3,
-             if_mask=True,
-             steps=None,
-             name=None):
-    """
-    全部以 between 为核心的顶层分析函数：
-      0. 创建 result_dir / result_path
-      1. 计算 unmasked Hilbert / ratios_between
-      2. 画 unmasked between 图（global + zoom）
-      3. 写 unmasked 文本统计
-      4. 如果 if_mask:
-         - 计算 masked Hilbert / ratios_between
-         - 画 masked between 图
-         - 写 masked 文本统计
-      5. 把所有轨迹数据保存为 json（包含 masked / unmasked）
-    """
+def analysis(
+    param_traj,
+    output_log,
+    batch_size,
+    lr,
+    path="./analysis_result",
+    num_epochs=None,
+    threshold=1e-3,
+    if_mask=True,
+    steps=None,
+    name=None,
+):
+    """Run analysis for Hilbert metrics using the new helper functions."""
 
     if name is None:
         name = f"Analysis_bs{batch_size}_lr{lr}_ep{num_epochs}"
@@ -323,152 +374,65 @@ def analysis(param_traj,
     elif num_epochs is None:
         raise ValueError("Either num_epochs or steps must be provided.")
 
-    # 0. 结果目录
-    result_dir = os.path.join(path, name)
-    os.makedirs(result_dir, exist_ok=True)
+    result_dir = Path(path) / name
+    result_dir.mkdir(parents=True, exist_ok=True)
 
-    result_path = os.path.join(result_dir, f"{name}.txt")
-
-    # 避免覆盖已有 txt
+    text_path = result_dir / f"{name}.txt"
     index = 1
-    base_txt = result_path
-    while os.path.exists(result_path):
-        result_path = os.path.join(result_dir, f"{name}_v{index}.txt")
+    while text_path.exists():
+        text_path = result_dir / f"{name}_v{index}.txt"
         index += 1
 
-    if sys.path and "swiss_roll_models" in sys.path[0]:
-        sys.path.pop(0)
-
-    # 1. Unmasked metrics
-    metrics_unmasked = compute_hilbert_metrics(
-        param_traj=param_traj,
-        threshold=threshold,
-        if_mask=False,
-        if_threshold=True,
-        if_self_adaptive=False,
-        w_star=None,
-    )
-    hilbert_to_final = metrics_unmasked["hilbert_to_final"]
-    hilbert_between = metrics_unmasked["hilbert_between"]
-    hilbert_to_init = metrics_unmasked["hilbert_to_init"]
-    ratios_between = metrics_unmasked["ratios_between"]
-
-    # 2. Unmasked between plots
-    plot_between_global_smoothed(
-        ratios_between,
-        batch_size, lr, num_epochs,
-        result_dir,
-        suffix="unmasked",
-    )
-    plot_between_zoom_last(
-        ratios_between,
-        batch_size, lr, num_epochs,
-        result_dir,
-        suffix="unmasked",
-        zoom_len=300,
-        window=10,
-    )
-    plot_between_zoom_last(
-        ratios_between,
-        batch_size, lr, num_epochs,
-        result_dir,
-        suffix="unmasked_last100",
-        zoom_len=100,
-        window=5,
-    )
-
-    # 3. 文本：模型信息 + log + unmasked between 统计
-    with open(result_path, "a", encoding="utf-8") as f:
+    # training log
+    with open(text_path, "w", encoding="utf-8") as f:
         f.write("===== Models Information =====\n\n")
         f.write(f"batch_size={batch_size}, lr={lr}, epochs={num_epochs}\n\n")
         f.write("training log\n")
         f.write(output_log)
         f.write("\n\n")
 
-        write_unmasked_between_stats(f, ratios_between)
-
-        if not if_mask:
-            # 保存 json（unmasked）
-            with open(os.path.join(result_dir, "hilbert_to_final.json"), "w", encoding="utf-8") as jf:
-                json.dump(hilbert_to_final, jf, ensure_ascii=False)
-
-            with open(os.path.join(result_dir, "hilbert_between.json"), "w", encoding="utf-8") as jf:
-                json.dump(hilbert_between, jf, ensure_ascii=False)
-
-            with open(os.path.join(result_dir, "hilbert_to_init.json"), "w", encoding="utf-8") as jf:
-                json.dump(hilbert_to_init, jf, ensure_ascii=False)
-
-            with open(os.path.join(result_dir, "ratios_between.json"), "w", encoding="utf-8") as jf:
-                json.dump(ratios_between, jf, ensure_ascii=False)
-
-            return {
-                "hilbert_to_final": hilbert_to_final,
-                "hilbert_between": hilbert_between,
-                "hilbert_to_init": hilbert_to_init,
-                "ratios_between": ratios_between,
-            }
-
-        # 4. Masked metrics
-        para_traj2 = param_traj
-        w_star_raw = para_traj2[-1].clone()
-
-        metrics_masked = compute_hilbert_metrics(
-            param_traj=para_traj2,
-            threshold=threshold,
-            if_mask=True,
-            if_threshold=False,
-            if_self_adaptive=False,
-            w_star=w_star_raw,
-        )
-        hilbert_to_final2 = metrics_masked["hilbert_to_final"]
-        hilbert_between2 = metrics_masked["hilbert_between"]
-        hilbert_to_init2 = metrics_masked["hilbert_to_init"]
-        ratios_between2 = metrics_masked["ratios_between"]
-
-        # Masked 文本统计
-        write_masked_between_stats(f, ratios_between2)
-
-    # 5. Masked plots
-    plot_masked_between(
-        ratios_between2,
-        batch_size, lr, num_epochs,
-        result_dir,
+    # Between-step analysis
+    between_results = analysis_to_w_between(
+        param_traj,
+        if_plot=True,
+        if_writes=True,
+        if_save=True,
+        save_name=name,
+        saved_path=result_dir,
+        if_show=False,
+        threshold=threshold,
+        if_masked=if_mask,
     )
 
-    # 6. 全部轨迹保存为 json
-    # --- unmasked ---
-    with open(os.path.join(result_dir, "hilbert_to_final.json"), "w", encoding="utf-8") as jf:
-        json.dump(hilbert_to_final, jf, ensure_ascii=False)
+    # To w_star analysis
+    w_star = param_traj[-1]
+    w_star_results = analysis_to_w_star(
+        param_traj,
+        w_star,
+        if_plot=True,
+        if_writes=True,
+        if_save=True,
+        save_name=name,
+        saved_path=result_dir,
+        if_show=False,
+        if_masked=if_mask,
+        if_unmasked=True,
+        threshold=threshold,
+    )
 
-    with open(os.path.join(result_dir, "hilbert_between.json"), "w", encoding="utf-8") as jf:
-        json.dump(hilbert_between, jf, ensure_ascii=False)
+    with open(text_path, "a", encoding="utf-8") as f:
+        f.write("===== Between-step Hilbert Statistics =====\n")
+        if "unmasked_stats" in between_results:
+            f.write(between_results["unmasked_stats"])
+        if "masked_stats" in between_results:
+            f.write("\n" + between_results["masked_stats"])
 
-    with open(os.path.join(result_dir, "hilbert_to_init.json"), "w", encoding="utf-8") as jf:
-        json.dump(hilbert_to_init, jf, ensure_ascii=False)
+        f.write("\n===== Hilbert to w* Statistics =====\n")
+        if "unmasked_stats" in w_star_results:
+            f.write(w_star_results["unmasked_stats"])
+        if "masked_stats" in w_star_results:
+            f.write("\n" + w_star_results["masked_stats"])
 
-    with open(os.path.join(result_dir, "ratios_between.json"), "w", encoding="utf-8") as jf:
-        json.dump(ratios_between, jf, ensure_ascii=False)
+    combined_results = {**between_results, **w_star_results}
+    return combined_results
 
-    # --- masked ---
-    with open(os.path.join(result_dir, "hilbert_to_final_masked.json"), "w", encoding="utf-8") as jf:
-        json.dump(hilbert_to_final2, jf, ensure_ascii=False)
-
-    with open(os.path.join(result_dir, "hilbert_between_masked.json"), "w", encoding="utf-8") as jf:
-        json.dump(hilbert_between2, jf, ensure_ascii=False)
-
-    with open(os.path.join(result_dir, "hilbert_to_init_masked.json"), "w", encoding="utf-8") as jf:
-        json.dump(hilbert_to_init2, jf, ensure_ascii=False)
-
-    with open(os.path.join(result_dir, "ratios_between_masked.json"), "w", encoding="utf-8") as jf:
-        json.dump(ratios_between2, jf, ensure_ascii=False)
-
-    return {
-        "hilbert_to_final": hilbert_to_final,
-        "hilbert_between": hilbert_between,
-        "hilbert_to_init": hilbert_to_init,
-        "ratios_between": ratios_between,
-        "hilbert_to_final_masked": hilbert_to_final2,
-        "hilbert_between_masked": hilbert_between2,
-        "hilbert_to_init_masked": hilbert_to_init2,
-        "ratios_between_masked": ratios_between2,
-    }
