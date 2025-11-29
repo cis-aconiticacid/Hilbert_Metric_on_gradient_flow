@@ -67,7 +67,7 @@ def describe_segment(vals):
 # ============================
 
 def plot_hb(
-    values,
+    values=None,
     *,
     if_smooth=True,
     smooth_window=50,

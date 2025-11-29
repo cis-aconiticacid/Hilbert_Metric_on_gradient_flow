@@ -19,9 +19,7 @@ from MNIST_models import graph_print_analysis as gpa  # type: ignore
 
 @dataclass
 class TrajectoryMetrics:
-    hilbert_to_final: List[float]
-    hilbert_between: List[float]
-    hilbert_to_init: List[float]
+    trajectory: List[torch.Tensor]
     l2_to_final: List[float]
     cosine_to_final: List[float]
 
@@ -44,20 +42,10 @@ def compute_projective_metrics(
     use_mask: bool = True,
 ) -> TrajectoryMetrics:
     """Compute Hilbert, Euclidean, and angular metrics against the final point."""
-
+    w_star_unit = param_traj[-1].detach().view(-1)
+    w_star_unit = w_star_unit / (w_star_unit.norm() + 1e-12)
     processed = _prepare_positive_traj(param_traj)
     w_star = processed[-1]
-
-    hilbert_res = gpa.compute_hilbert_metrics(
-        processed,
-        threshold=threshold,
-        if_mask=use_mask,
-        if_threshold=not use_mask,
-        if_self_adaptive=False,
-        w_star=w_star,
-    )
-
-    w_star_unit = w_star / (w_star.norm() + 1e-12)
     l2_to_final = []
     cosine_to_final = []
     for w in processed:
@@ -66,9 +54,7 @@ def compute_projective_metrics(
         cosine_to_final.append(float(torch.dot(w, w_star_unit) / w_norm))
 
     return TrajectoryMetrics(
-        hilbert_to_final=hilbert_res["hilbert_to_final"],
-        hilbert_between=hilbert_res["hilbert_between"],
-        hilbert_to_init=hilbert_res["hilbert_to_init"],
+        trajectory=processed,
         l2_to_final=l2_to_final,
         cosine_to_final=cosine_to_final,
     )
