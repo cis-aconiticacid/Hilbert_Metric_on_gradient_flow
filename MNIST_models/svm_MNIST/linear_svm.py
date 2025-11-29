@@ -43,6 +43,7 @@ class LinearSVMRun:
     param_traj: List[torch.Tensor]
     train_losses: List[float]
     margins: List[float]
+    train_accuracies: List[float]
     metrics: TrajectoryMetrics
     final_weights: torch.Tensor
     bias: torch.Tensor
@@ -65,6 +66,7 @@ class LinearSVMTrainer:
         y_train: np.ndarray,
         *,
         step_seed: int = 0,
+        if_trace_accuracy: bool = False,
     ) -> LinearSVMRun:
         cfg = self.config
         dataloader = _make_dataloader(
@@ -77,6 +79,7 @@ class LinearSVMTrainer:
         param_traj: List[torch.Tensor] = []
         train_losses: List[float] = []
         margins: List[float] = []
+        train_accuracies: List[float] = []
         history_steps: List[int] = []
 
         step_idx = 0
@@ -95,6 +98,11 @@ class LinearSVMTrainer:
                     train_losses.append(float(loss.detach().cpu()))
                     margin_values = batch_y * outputs
                     margins.append(float(margin_values.min().detach().cpu()))
+
+                    if if_trace_accuracy:
+                        preds = torch.where(outputs >= 0, 1.0, -1.0)
+                        correct = (preds == batch_y).float().mean()
+                        train_accuracies.append(float(correct.detach().cpu()))
 
                     if step_idx % cfg.record_interval == 0:
                         weight_vec = model.weight.detach().flatten().cpu().clone()
@@ -116,6 +124,7 @@ class LinearSVMTrainer:
             param_traj=param_traj,
             train_losses=train_losses,
             margins=margins,
+            train_accuracies=train_accuracies,
             metrics=metrics,
             final_weights=final_weight,
             bias=final_bias,
