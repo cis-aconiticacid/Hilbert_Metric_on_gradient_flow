@@ -274,3 +274,115 @@ class HBModel_MNIST:
         }
 
 
+    def train_full_batch_with_hilbert(
+        self,
+        model: nn.Module,
+        images: torch.Tensor,
+        labels: torch.Tensor,
+        num_steps: int,
+        lr: float = 1e-2,
+        device: Optional[str] = None,
+        initial_vector: Optional[Sequence[float]] = None,
+        if_regularize: bool = True,
+        if_decay: bool = False,
+        loss_type: str = "ce",
+        huber_beta: float = 1.0,
+        regularization_coeff: float = 1e-4,
+        if_regularize_all: bool = False,
+        seed: Optional[int] = 42,
+    ) -> Dict[str, Any]:
+        """
+        Run full-batch training for a fixed number of steps on a provided model.
+
+        Args:
+            model (nn.Module): Model to train. Must expose an ``output_layer`` attribute.
+            images (torch.Tensor): Input images as a single batch.
+            labels (torch.Tensor): Corresponding labels for ``images``.
+            num_steps (int): Number of optimization steps to run.
+            lr (float): Learning rate for the SGD optimizer.
+            device (Optional[str]): Target device. Defaults to CUDA when available.
+            initial_vector (Optional[Sequence[float]]): Optional flattened vector to initialize
+                ``output_layer.weight``.
+            if_regularize (bool): Whether to apply weight decay regularization.
+            if_decay (bool): Legacy flag to regularize all parameters when True.
+            loss_type (str): "ce", "huber", or "mse".
+            huber_beta (float): Beta for SmoothL1 when ``loss_type="huber"``.
+            regularization_coeff (float): Weight decay coefficient.
+            if_regularize_all (bool): When True, regularize all parameters rather than only the output layer.
+            seed (Optional[int]): Random seed for reproducibility.
+
+        Returns:
+            Dict[str, Any]: Dictionary with keys "model", "param_traj", "lr", and "steps".
+        """
+        if num_steps < 1:
+            raise ValueError("num_steps must be at least 1.")
+
+        if device is None:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+
+        if seed is not None:
+            torch.manual_seed(seed)
+
+        model = model.to(device)
+
+        if initial_vector is not None:
+            init_vec = torch.tensor(initial_vector, dtype=torch.float32, device=device)
+            expected_numel = model.output_layer.weight.numel()
+            if init_vec.numel() != expected_numel:
+                raise ValueError(
+                    f"Initial vector size {init_vec.numel()} does not match output_layer weight size {expected_numel}."
+                )
+            with torch.no_grad():
+                model.output_layer.weight.copy_(init_vec.view_as(model.output_layer.weight))
+
+        images = images.to(device)
+        labels = labels.to(device)
+
+        if loss_type == "ce":
+            criterion = nn.CrossEntropyLoss()
+        elif loss_type == "huber":
+            criterion = nn.SmoothL1Loss(beta=huber_beta)
+        elif loss_type == "mse":
+            criterion = nn.MSELoss()
+        else:
+            raise ValueError(f"Unknown loss_type: {loss_type}")
+
+        if if_regularize:
+            if if_regularize_all or if_decay:
+                optimizer = torch.optim.SGD(model.parameters(), lr=lr, weight_decay=regularization_coeff)
+            else:
+                optimizer = torch.optim.SGD(
+                    [
+                        {"params": model.hidden_layers.parameters(), "weight_decay": 0},
+                        {"params": model.output_layer.parameters(), "weight_decay": regularization_coeff},
+                    ],
+                    lr=lr,
+                )
+        else:
+            optimizer = torch.optim.SGD(model.parameters(), lr=lr)
+
+        param_traj: List[torch.Tensor] = []
+        with torch.no_grad():
+            w0 = model.output_layer.weight.detach().cpu().reshape(-1).clone()
+            param_traj.append(w0)
+
+        for _ in range(num_steps):
+            optimizer.zero_grad()
+            logits = model(images)
+
+            if loss_type == "ce":
+                loss = criterion(logits, labels)
+            else:
+                target_onehot = F.one_hot(labels, num_classes=10).float()
+                loss = criterion(logits, target_onehot)
+
+            loss.backward()
+            optimizer.step()
+
+            with torch.no_grad():
+                w_t = model.output_layer.weight.detach().cpu().reshape(-1).clone()
+                param_traj.append(w_t)
+
+        return {"model": model, "param_traj": param_traj, "lr": lr, "steps": len(param_traj) - 1}
+
+
