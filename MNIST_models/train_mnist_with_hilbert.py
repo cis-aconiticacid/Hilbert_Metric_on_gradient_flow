@@ -54,10 +54,8 @@ class HBModel_MNIST:
         batch_size: int = 128,
         lr: float = 1e-2,
         device: Optional[str] = None,
-        initial_vector: Optional[Sequence[float]] = None,
         if_regularize: bool = True,
         if_decay: bool = False,
-        decay: float = 1e-4,
         loss_type: str = 'ce',
         huber_beta: float = 1.0,
         regularization_coeff: float = 1e-4,
@@ -135,18 +133,6 @@ class HBModel_MNIST:
 
         model = MNISTNet(number_of_layerss=number_of_layerss).to(device)
 
-        if initial_vector is not None:
-            init_tensor = torch.as_tensor(initial_vector, dtype=model.output_layer.weight.dtype)
-            init_tensor = init_tensor.flatten()
-            if init_tensor.numel() != model.output_layer.weight.numel():
-                raise ValueError(
-                    "initial_vector has incorrect size: "
-                    f"expected {model.output_layer.weight.numel()}, got {init_tensor.numel()}"
-                )
-            init_tensor = init_tensor.view_as(model.output_layer.weight).to(device)
-            with torch.no_grad():
-                model.output_layer.weight.copy_(init_tensor)
-
         # 根据 loss_type 选择不同的 criterion
         if loss_type == "ce":
             criterion = nn.CrossEntropyLoss()
@@ -161,12 +147,12 @@ class HBModel_MNIST:
 
         if if_regularize:
             if if_regularize_all or if_decay:
-                optimizer = torch.optim.SGD(model.parameters(), lr=lr, weight_decay=decay)
+                optimizer = torch.optim.SGD(model.parameters(), lr=lr, weight_decay=regularization_coeff)
             else:
                 optimizer = torch.optim.SGD(
                     [
                         {"params": model.hidden_layers.parameters(), "weight_decay": 0},
-                        {"params": model.output_layer.parameters(), "weight_decay": decay},
+                        {"params": model.output_layer.parameters(), "weight_decay": regularization_coeff},
                     ],
                     lr=lr
                 )
@@ -287,65 +273,4 @@ class HBModel_MNIST:
             "epochs_or_steps": f"steps{max_steps}" if max_steps is not None else f"ep{num_epochs}",
         }
 
-    def mixed_hilber(
-        n_runs: int,
-        *,
-        initial_vector: Optional[Sequence[float]] = None,
-        seeds: Optional[Sequence[int]] = None,
-        **train_kwargs: Any,
-    ) -> List[Dict[str, Any]]:
-
-        """
-
-        Run multiple trainings that share the same initial output-layer vector.
-
-        Args:
-            n_runs (int): Number of independent training runs to execute (>=1).
-            initial_vector (Optional[Sequence[float]]): Optional 1D vector used to initialize every run. When ``None``,
-                a fresh model is constructed to sample a shared initial vector.
-            seeds (Optional[Sequence[int]]): Optional list of seeds, one per run, to forward to ``train_mnist_with_hilbert``.
-                When provided, ``seed`` must not be set inside ``train_kwargs`` and ``len(seeds)`` must equal ``n_runs``.
-            **train_kwargs: Arguments forwarded to ``train_mnist_with_hilbert``. Must contain
-                ``number_of_layerss`` so the default initial vector can be generated when needed.
-
-        Returns:
-            List[Dict[str, Any]]: The collection of training result dictionaries returned by
-            ``train_mnist_with_hilbert`` for each run, preserving run order.
-            
-        """
-
-        if n_runs < 1:
-            raise ValueError("n_runs must be at least 1.")
-
-        if "number_of_layerss" not in train_kwargs:
-            raise ValueError("train_kwargs must include 'number_of_layerss' for model construction.")
-
-        if seeds is not None:
-            if "seed" in train_kwargs:
-                raise ValueError("Do not specify both seeds list and a fixed 'seed' in train_kwargs.")
-            if len(seeds) != n_runs:
-                raise ValueError("Length of seeds must match n_runs when provided.")
-
-        base_init = initial_vector
-        if base_init is None:
-            temp_model = HBModel_MNIST.MNISTNet(number_of_layerss=train_kwargs["number_of_layerss"])
-            with torch.no_grad():
-                base_init = temp_model.output_layer.weight.detach().reshape(-1).clone()
-        else:
-            base_init = torch.as_tensor(base_init).detach().flatten()
-
-        results = []
-        for run_idx in range(n_runs):
-            per_run_kwargs = dict(train_kwargs)
-            if seeds is not None:
-                per_run_kwargs["seed"] = seeds[run_idx]
-
-            results.append(
-                HBModel_MNIST.train_mnist_with_hilbert(
-                    initial_vector=base_init.clone(),
-                    **per_run_kwargs,
-                )
-            )
-
-        return results
 

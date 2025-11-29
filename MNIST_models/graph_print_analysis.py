@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-import Hilbert_computation as hc
+from Hilbert_computation import hilbert_computation as hc
 
 
 # ============================
