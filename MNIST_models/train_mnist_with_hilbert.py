@@ -1,4 +1,4 @@
-import math
+
 from typing import Any, Dict, List, Optional, Sequence
 
 import torch
@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 from torchvision.datasets.utils import download_url
 import graph_print_analysis as gp_tool
+
 # add repo root so swiss_roll_models can be imported from anywhere
 for p in [Path.cwd(), *Path.cwd().parents]:
     if (p / "swiss_roll_models").exists():
@@ -17,70 +18,78 @@ for p in [Path.cwd(), *Path.cwd().parents]:
         break
 
 from environment.hilbert_distance import hilbert_analysis as hda
+
+class MNISTNet(nn.Module):
+    def __init__(self, number_of_layerss=1, hidden_dim=256):
+        super().__init__()
+        if number_of_layerss < 1:
+            raise ValueError("number_of_layerss must be at least 1.")
+
+        layers = []
+        input_dim = 28 * 28
+        for _ in range(number_of_layerss):
+            layers.append(nn.Linear(input_dim, hidden_dim))
+            layers.append(nn.ReLU())
+            input_dim = hidden_dim
+        self.hidden_layers = nn.Sequential(*layers) if layers else nn.Identity()
+        self.output_layer = nn.Linear(input_dim, 10)  # We track the weights of this layer
+
+    def forward(self, x):
+        x = x.view(x.size(0), -1)   # flatten
+        x = self.hidden_layers(x)
+        logits = self.output_layer(x)
+        return logits
+
 class HBModel_MNIST:
     # ============================
     # 1. Define a simple MNIST model
     # ============================
 
-    class MNISTNet(nn.Module):
-        def __init__(self, number_of_layerss=1, hidden_dim=256):
-            super().__init__()
-            if number_of_layerss < 1:
-                raise ValueError("number_of_layerss must be at least 1.")
 
-            layers = []
-            input_dim = 28 * 28
-            for _ in range(number_of_layerss):
-                layers.append(nn.Linear(input_dim, hidden_dim))
-                layers.append(nn.ReLU())
-                input_dim = hidden_dim
-            self.hidden_layers = nn.Sequential(*layers) if layers else nn.Identity()
-            self.output_layer = nn.Linear(input_dim, 10)  # We track the weights of this layer
-
-        def forward(self, x):
-            x = x.view(x.size(0), -1)   # flatten
-            x = self.hidden_layers(x)
-            logits = self.output_layer(x)
-            return logits
 
     def train_mnist_with_hilbert(
-        number_of_layerss: int,
-        num_epochs: Optional[int] = None,      # 👈 经典 epoch 模式
-        max_steps: Optional[int] = None,       # 👈 固定 step 数模式
+        number_of_layerss: int = 1,
+        num_epochs: Optional[int] = None,      
+        max_steps: Optional[int] = None,       
         batch_size: int = 128,
         lr: float = 1e-2,
         device: Optional[str] = None,
         initial_vector: Optional[Sequence[float]] = None,
         if_regularize: bool = True,
         if_decay: bool = False,
-        loss_type: str = "ce",
+        decay: float = 1e-4,
+        loss_type: str = 'ce',
         huber_beta: float = 1.0,
         regularization_coeff: float = 1e-4,
         if_regularize_all: bool = False,
         trajectory_save_path: Optional[str] = None,
         seed: Optional[int] = 42,
     ) -> Dict[str, Any]:
-        """Train MNIST classifier while tracking output-layer trajectories and optional regularization.
-
+        """
+        Train MNIST classifier while tracking output-layer trajectories and optional regularization.
         Args:
             number_of_layerss (int): Number of hidden linear/ReLU blocks to include (>=1).
-            num_epochs (Optional[int]): Number of full epochs to run; mutually exclusive with ``max_steps``.
-            max_steps (Optional[int]): Fixed number of training steps when set; mutually exclusive with ``num_epochs``.
+            num_epochs (Optional[int]): Number of full epochs to run; mutually exclusive with max_steps.
+            max_steps (Optional[int]): Fixed number of training steps when set; mutually exclusive with num_epochs.
             batch_size (int): Mini-batch size for training.
             lr (float): Learning rate for the SGD optimizer.
             device (Optional[str]): Optional device override (defaults to CUDA when available).
             initial_vector (Optional[Sequence[float]]): Optional 1D vector to initialize the output layer weights (flattened order).
             if_regularize (bool): Whether to apply weight decay regularization.
-            if_decay (bool): Legacy flag preserved for compatibility; when ``True`` applies decay to all parameters.
-            loss_type (str): Loss choice: ``"ce"``, ``"huber"``, or ``"mse"``.
-            huber_beta (float): Beta parameter for SmoothL1 loss when ``loss_type="huber"``.
+            if_decay (bool): Legacy flag preserved for compatibility; when True applies decay to all parameters.
+            loss_type (str): Loss choice: ce, huber, or mse.
+            huber_beta (float): Beta parameter for SmoothL1 loss when loss_type=huber.
             regularization_coeff (float): Weight decay coefficient when regularization is enabled.
-            if_regularize_all (bool): When ``True``, apply regularization to all parameters; otherwise only the output layer.
-            trajectory_save_path (Optional[str]): Absolute path to save the parameter trajectory; when ``None``, do not save.
-            seed (Optional[int]): Random seed for reproducibility; when ``None``, leave the current RNG state unchanged.
+            if_regularize_all (bool): When True, apply regularization to all parameters; otherwise only the output layer.
+            trajectory_save_path (Optional[str]): Absolute path to save the parameter trajectory; when None, do not save.
+            seed (Optional[int]): Random seed for reproducibility; when None, leave the current RNG state unchanged.
 
         Returns:
-            Dict[str, Any]: Training artefacts including the trained model, recorded trajectory, and logging info.
+            Dict[str, Any]: "model"
+            "output_log",
+            "batch_size",
+            "lr",
+            "epochs_or_steps"
         """
         # ------------ 基本参数检查 ------------
         if (num_epochs is None) and (max_steps is None):
@@ -152,12 +161,12 @@ class HBModel_MNIST:
 
         if if_regularize:
             if if_regularize_all or if_decay:
-                optimizer = torch.optim.SGD(model.parameters(), lr=lr, weight_decay=regularization_coeff)
+                optimizer = torch.optim.SGD(model.parameters(), lr=lr, weight_decay=decay)
             else:
                 optimizer = torch.optim.SGD(
                     [
                         {"params": model.hidden_layers.parameters(), "weight_decay": 0},
-                        {"params": model.output_layer.parameters(), "weight_decay": regularization_coeff},
+                        {"params": model.output_layer.parameters(), "weight_decay": decay},
                     ],
                     lr=lr
                 )
@@ -285,7 +294,10 @@ class HBModel_MNIST:
         seeds: Optional[Sequence[int]] = None,
         **train_kwargs: Any,
     ) -> List[Dict[str, Any]]:
-        """Run multiple trainings that share the same initial output-layer vector.
+
+        """
+
+        Run multiple trainings that share the same initial output-layer vector.
 
         Args:
             n_runs (int): Number of independent training runs to execute (>=1).
@@ -299,7 +311,9 @@ class HBModel_MNIST:
         Returns:
             List[Dict[str, Any]]: The collection of training result dictionaries returned by
             ``train_mnist_with_hilbert`` for each run, preserving run order.
+            
         """
+
         if n_runs < 1:
             raise ValueError("n_runs must be at least 1.")
 
