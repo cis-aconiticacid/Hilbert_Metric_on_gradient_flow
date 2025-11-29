@@ -276,10 +276,10 @@ class HBModel_MNIST:
 
     def train_full_batch_with_hilbert(
         self,
-        model: nn.Module,
-        images: torch.Tensor,
-        labels: torch.Tensor,
-        num_steps: int,
+        model: Optional[nn.Module] = None,
+        images: Optional[torch.Tensor] = None,
+        labels: Optional[torch.Tensor] = None,
+        num_steps: int = 1,
         lr: float = 1e-2,
         device: Optional[str] = None,
         initial_vector: Optional[Sequence[float]] = None,
@@ -290,14 +290,19 @@ class HBModel_MNIST:
         regularization_coeff: float = 1e-4,
         if_regularize_all: bool = False,
         seed: Optional[int] = 42,
+        batch_size: Optional[int] = None,
+        number_of_layerss: int = 1,
     ) -> Dict[str, Any]:
         """
         Run full-batch training for a fixed number of steps on a provided model.
 
         Args:
-            model (nn.Module): Model to train. Must expose an ``output_layer`` attribute.
-            images (torch.Tensor): Input images as a single batch.
-            labels (torch.Tensor): Corresponding labels for ``images``.
+            model (Optional[nn.Module]): Model to train. When ``None``, a ``MNISTNet``
+                with ``number_of_layerss`` hidden blocks is created automatically.
+            images (Optional[torch.Tensor]): Input images as a single batch. When
+                ``None``, a batch is drawn from MNIST using ``batch_size``.
+            labels (Optional[torch.Tensor]): Corresponding labels for ``images``;
+                must be provided together with ``images`` when not auto-loading.
             num_steps (int): Number of optimization steps to run.
             lr (float): Learning rate for the SGD optimizer.
             device (Optional[str]): Target device. Defaults to CUDA when available.
@@ -310,12 +315,54 @@ class HBModel_MNIST:
             regularization_coeff (float): Weight decay coefficient.
             if_regularize_all (bool): When True, regularize all parameters rather than only the output layer.
             seed (Optional[int]): Random seed for reproducibility.
+            batch_size (Optional[int]): Batch size used when auto-loading MNIST data.
+                Required when ``images`` or ``labels`` is ``None``.
+            number_of_layerss (int): Number of hidden linear/ReLU blocks when constructing
+                a default ``MNISTNet``.
 
         Returns:
             Dict[str, Any]: Dictionary with keys "model", "param_traj", "lr", and "steps".
         """
         if num_steps < 1:
             raise ValueError("num_steps must be at least 1.")
+
+        if (images is None) != (labels is None):
+            raise ValueError("images and labels must both be provided or both be None.")
+
+        if images is None:
+            if batch_size is None:
+                raise ValueError("batch_size is required when images/labels are not provided.")
+
+            if number_of_layerss < 1:
+                raise ValueError("number_of_layerss must be at least 1.")
+
+            transform = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize((0.1307,), (0.3081,)),
+            ])
+
+            train_dataset = datasets.MNIST(
+                root="./data",
+                train=True,
+                download=True,
+                transform=transform,
+            )
+
+            data_loader = DataLoader(
+                train_dataset,
+                batch_size=batch_size,
+                shuffle=True,
+                num_workers=7,
+                pin_memory=True,
+            )
+
+            try:
+                images, labels = next(iter(data_loader))
+            except StopIteration:
+                raise RuntimeError("Failed to draw a batch from the MNIST dataset.")
+
+        if model is None:
+            model = MNISTNet(number_of_layerss=number_of_layerss)
 
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
