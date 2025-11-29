@@ -29,16 +29,24 @@ def load_mnist_data(
     """Load MNIST digits and return flattened train/test splits.
 
     Args:
-        max_samples: Optional cap on the number of training samples loaded
-            from the original 60k MNIST training examples. When ``None``
-            the full training set is used. The selected subset is shuffled
-            with the provided ``random_state`` before splitting.
-        test_size: Fraction of samples reserved for evaluation.
-        random_state: Seed used for the deterministic shuffle/split.
+        max_samples (int | None): Maximum number of samples to keep from the
+            60k MNIST training set. ``None`` disables subsampling, otherwise
+            the dataset is deterministically shuffled with ``random_state``
+            before truncation.
+        test_size (float): Fraction of the retained samples to allocate to the
+            test split passed to :func:`sklearn.model_selection.train_test_split`.
+        random_state (int): Seed used both for subsampling and for the
+            train/test split to keep runs reproducible.
 
     Returns:
-        ``(X_train, X_test, y_train, y_test)`` where each feature matrix has
-        shape ``(n_samples, 784)`` with pixel intensities in ``[0, 1]``.
+        Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]: ``X_train``,
+        ``X_test``, ``y_train`` and ``y_test`` arrays. The feature arrays are
+        two-dimensional with shape ``(n_samples, 784)`` where each row contains
+        normalized pixel intensities in ``[0, 1]``.
+
+    Notes:
+        Images are flattened from ``28×28`` tensors to one-dimensional vectors
+        so they can be consumed by scikit-learn's SVM implementation.
     """
 
     transform = transforms.Compose(
@@ -76,7 +84,15 @@ def load_mnist_data(
 
 @dataclass
 class SVMConfig:
-    """Configuration for RBF SVM training."""
+    """Configuration container for the RBF SVM.
+
+    Attributes:
+        c (float): Soft-margin penalty ``C`` passed to :class:`sklearn.svm.SVC`.
+        gamma (str | float): Kernel coefficient; string values forward to
+            scikit-learn's presets (e.g., ``"scale"`` or ``"auto"``).
+        max_iter (int): Maximum number of iterations for the solver; ``-1``
+            delegates the stopping condition to scikit-learn defaults.
+    """
 
     c: float = 5.0
     gamma: str | float = "scale"
@@ -86,7 +102,18 @@ class SVMConfig:
 def build_rbf_svm(config: SVMConfig | None = None) -> Pipeline:
     """Create a standard-scaled RBF SVM pipeline.
 
-    Scaling the flattened pixel vectors improves SVM convergence.
+    Args:
+        config (SVMConfig | None): Hyperparameter settings for the SVM model.
+            When omitted, :class:`SVMConfig` defaults are used.
+
+    Returns:
+        Pipeline: A scikit-learn :class:`~sklearn.pipeline.Pipeline`
+        consisting of a ``StandardScaler`` followed by an RBF-kernel
+        :class:`~sklearn.svm.SVC` configured with ``config``.
+
+    Notes:
+        Feature standardization typically improves SVM convergence and avoids
+        the penalty term being dominated by input scale differences.
     """
 
     if config is None:
@@ -113,7 +140,18 @@ def train_rbf_svm(
     y_train: np.ndarray,
     config: SVMConfig | None = None,
 ) -> Pipeline:
-    """Fit an RBF SVM on the provided features and labels."""
+    """Fit an RBF SVM on the provided features and labels.
+
+    Args:
+        X_train (np.ndarray): Feature matrix with shape ``(n_samples, 784)``
+            containing flattened, normalized MNIST images.
+        y_train (np.ndarray): Target labels matching ``X_train`` rows.
+        config (SVMConfig | None): Optional hyperparameter bundle passed to
+            :func:`build_rbf_svm`; defaults provide a reasonable baseline.
+
+    Returns:
+        Pipeline: A trained scikit-learn pipeline ready for inference.
+    """
 
     model = build_rbf_svm(config)
     model.fit(X_train, y_train)
@@ -121,7 +159,18 @@ def train_rbf_svm(
 
 
 def evaluate_accuracy(model: Pipeline, X: np.ndarray, y: np.ndarray) -> float:
-    """Compute classification accuracy for the given model and dataset."""
+    """Compute classification accuracy for the given model and dataset.
+
+    Args:
+        model (Pipeline): A fitted pipeline produced by
+            :func:`train_rbf_svm` or :func:`build_rbf_svm`.
+        X (np.ndarray): Feature matrix to evaluate, typically from
+            :func:`load_mnist_data`.
+        y (np.ndarray): Ground-truth labels corresponding to ``X`` rows.
+
+    Returns:
+        float: Proportion of correctly classified samples in ``[0.0, 1.0]``.
+    """
 
     predictions = model.predict(X)
     return float(accuracy_score(y, predictions))
