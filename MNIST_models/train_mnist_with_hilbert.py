@@ -386,3 +386,115 @@ class HBModel_MNIST:
         return {"model": model, "param_traj": param_traj, "lr": lr, "steps": len(param_traj) - 1}
 
 
+    def train_with_optional_initialization(
+        self,
+        if_initialize: bool,
+        num_steps: int,
+        number_of_layerss: int = 1,
+        lr: float = 1e-2,
+        device: Optional[str] = None,
+        model: Optional[nn.Module] = None,
+        images: Optional[torch.Tensor] = None,
+        labels: Optional[torch.Tensor] = None,
+        initial_vector: Optional[Sequence[float]] = None,
+        if_regularize: bool = True,
+        if_decay: bool = False,
+        loss_type: str = "ce",
+        huber_beta: float = 1.0,
+        regularization_coeff: float = 1e-4,
+        if_regularize_all: bool = False,
+        seed: Optional[int] = 42,
+    ) -> Dict[str, Any]:
+        """
+        Run Hilbert-style training either by initializing a new model and sampling a mini-batch
+        or by using a provided full-batch of data with a pre-existing model.
+
+        Args:
+            if_initialize (bool): When True, initialize a new ``MNISTNet`` model and sample
+                a mini-batch from the MNIST training split. When False, use the provided
+                ``model``, ``images``, and ``labels`` as a full batch.
+            num_steps (int): Number of optimization steps to run.
+            number_of_layerss (int): Hidden layer count for the freshly initialized model when
+                ``if_initialize`` is True.
+            lr (float): Learning rate for SGD.
+            device (Optional[str]): Target device; defaults to CUDA when available.
+            model (Optional[nn.Module]): Model to train when ``if_initialize`` is False.
+            images (Optional[torch.Tensor]): Full-batch images when ``if_initialize`` is False.
+            labels (Optional[torch.Tensor]): Full-batch labels when ``if_initialize`` is False.
+            initial_vector (Optional[Sequence[float]]): Optional initializer for the output
+                layer weights when ``if_initialize`` is False.
+            if_regularize (bool): Whether to apply weight decay regularization.
+            if_decay (bool): Legacy flag controlling regularization of all parameters.
+            loss_type (str): "ce", "huber", or "mse".
+            huber_beta (float): Beta parameter for SmoothL1 loss when ``loss_type="huber"``.
+            regularization_coeff (float): Weight decay coefficient.
+            if_regularize_all (bool): Apply weight decay to all parameters when True.
+            seed (Optional[int]): Random seed for reproducibility.
+
+        Returns:
+            Dict[str, Any]: Contains "model", "param_traj", "lr", "steps", and "step" keys.
+        """
+        if num_steps < 1:
+            raise ValueError("num_steps must be at least 1.")
+
+        if device is None:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+
+        if if_initialize:
+            if seed is not None:
+                torch.manual_seed(seed)
+
+            transform = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize((0.1307,), (0.3081,)),
+            ])
+
+            train_dataset = datasets.MNIST(
+                root="./data",
+                train=True,
+                download=True,
+                transform=transform,
+            )
+
+            # Use a fixed batch size for initialization to keep the API lightweight.
+            batch_size = 128
+            train_loader = DataLoader(
+                train_dataset,
+                batch_size=batch_size,
+                shuffle=True,
+                num_workers=7,
+                pin_memory=True,
+            )
+
+            try:
+                images, labels = next(iter(train_loader))
+            except StopIteration as exc:
+                raise RuntimeError("Failed to draw a batch from the MNIST training set.") from exc
+
+            model = MNISTNet(number_of_layerss=number_of_layerss)
+        else:
+            if model is None or images is None or labels is None:
+                raise ValueError("model, images, and labels must be provided when if_initialize is False.")
+
+        result = self.train_full_batch_with_hilbert(
+            model=model,
+            images=images,
+            labels=labels,
+            num_steps=num_steps,
+            lr=lr,
+            device=device,
+            initial_vector=initial_vector,
+            if_regularize=if_regularize,
+            if_decay=if_decay,
+            loss_type=loss_type,
+            huber_beta=huber_beta,
+            regularization_coeff=regularization_coeff,
+            if_regularize_all=if_regularize_all,
+            seed=seed,
+        )
+
+        # Provide an additional alias to match the expected return naming in the request.
+        result["step"] = result.get("steps", num_steps)
+        return result
+
+
