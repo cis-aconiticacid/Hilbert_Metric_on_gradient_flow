@@ -386,3 +386,108 @@ class HBModel_MNIST:
         return {"model": model, "param_traj": param_traj, "lr": lr, "steps": len(param_traj) - 1}
 
 
+    def train_with_optional_initialization(
+        self,
+        num_steps: int,
+        if_initialize: bool,
+        number_of_layerss: int = 1,
+        lr: float = 1e-2,
+        device: Optional[str] = None,
+        model: Optional[nn.Module] = None,
+        images: Optional[torch.Tensor] = None,
+        labels: Optional[torch.Tensor] = None,
+        initial_vector: Optional[Sequence[float]] = None,
+        if_regularize: bool = True,
+        if_decay: bool = False,
+        loss_type: str = "ce",
+        huber_beta: float = 1.0,
+        regularization_coeff: float = 1e-4,
+        if_regularize_all: bool = False,
+        seed: Optional[int] = 42,
+        sample_size: int = 128,
+    ) -> Dict[str, Any]:
+        """
+        Train for a fixed number of steps with optional model/data initialization.
+
+        When ``if_initialize`` is True, the method builds a fresh ``MNISTNet`` and
+        samples ``sample_size`` examples from the MNIST training set. When False, it
+        expects a pre-created ``model`` along with ``images`` and ``labels``
+        representing a full batch. The routine then runs ``num_steps`` of
+        full-batch training and returns the resulting trajectory.
+
+        Returns a dictionary containing "model", "param_traj", "lr", and "step".
+        """
+        if num_steps < 1:
+            raise ValueError("num_steps must be at least 1.")
+
+        if device is None:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+
+        if if_initialize:
+            if number_of_layerss < 1:
+                raise ValueError("number_of_layerss must be at least 1.")
+            if sample_size < 1:
+                raise ValueError("sample_size must be at least 1 when initializing.")
+            if seed is not None:
+                torch.manual_seed(seed)
+
+            transform = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize((0.1307,), (0.3081,)),
+            ])
+
+            train_dataset = datasets.MNIST(
+                root="./data",
+                train=True,
+                download=True,
+                transform=transform,
+            )
+
+            sample_loader = DataLoader(
+                train_dataset,
+                batch_size=sample_size,
+                shuffle=True,
+                num_workers=7,
+                pin_memory=True,
+            )
+
+            images_batch, labels_batch = next(iter(sample_loader))
+            model_to_train = MNISTNet(number_of_layerss=number_of_layerss)
+            images_to_use = images_batch
+            labels_to_use = labels_batch
+            init_vector = None
+        else:
+            if model is None or images is None or labels is None:
+                raise ValueError(
+                    "When if_initialize is False, provide model, images, and labels for full-batch training."
+                )
+            model_to_train = model
+            images_to_use = images
+            labels_to_use = labels
+            init_vector = initial_vector
+
+        result = self.train_full_batch_with_hilbert(
+            model=model_to_train,
+            images=images_to_use,
+            labels=labels_to_use,
+            num_steps=num_steps,
+            lr=lr,
+            device=device,
+            initial_vector=init_vector,
+            if_regularize=if_regularize,
+            if_decay=if_decay,
+            loss_type=loss_type,
+            huber_beta=huber_beta,
+            regularization_coeff=regularization_coeff,
+            if_regularize_all=if_regularize_all,
+            seed=seed,
+        )
+
+        return {
+            "model": result["model"],
+            "param_traj": result["param_traj"],
+            "lr": result["lr"],
+            "step": result.get("steps", len(result.get("param_traj", [])) - 1),
+        }
+
+
