@@ -15,6 +15,16 @@ finally:
 
 
 def smooth(x, window=50):
+    """Apply a moving average to a one-dimensional numeric sequence.
+
+    Args:
+        x (Sequence[float]): Values to smooth.
+        window (int): Width of the averaging window.
+
+    Returns:
+        np.ndarray: Smoothed values, or the original array when it is shorter
+        than window.
+    """
     x = np.array(x, dtype=float)
     if len(x) < window:
         return x
@@ -23,6 +33,24 @@ def smooth(x, window=50):
 
 def analysis(param_traj, output_log, batch_size, lr, num_epochs=None,
              threshold=1e-3, if_mask=True, steps=None):
+    """Analyze and persist Hilbert-distance dynamics for a trajectory.
+
+    Args:
+        param_traj (Sequence): Parameter vectors over optimization steps.
+        output_log (str): Training log appended to the analysis report.
+        batch_size (int): Training batch size used in output names.
+        lr (float): Learning rate used in output names.
+        num_epochs (int | None): Completed epoch count.
+        threshold (float): Threshold retained for masked-cone analysis.
+        if_mask (bool): Whether to run the masked analysis section.
+        steps (int | None): Step count used instead of num_epochs.
+
+    Returns:
+        None: Plots and textual summaries are written under analysis_result.
+
+    Raises:
+        ValueError: If neither num_epochs nor steps is provided.
+    """
     if steps is not None:
         num_epochs = steps
     elif num_epochs is None:
