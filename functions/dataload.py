@@ -4,8 +4,19 @@ import os
 datapath = "./MNIST_models/model_result/"
 
 def loadresults(batchsize, lr, epoch_or_step, ifstep, ModelClass, filename=None, device="cuda"):
-    """
-    Return a load_state_dict completed model.
+    """Load a saved model checkpoint for an MNIST experiment.
+
+    Args:
+        batchsize (int): Training batch size used to name the checkpoint.
+        lr (float): Learning rate used to name the checkpoint.
+        epoch_or_step (int): Epoch index or global step for the checkpoint.
+        ifstep (bool): Interpret epoch_or_step as a step count when true.
+        ModelClass (type): Callable returning a checkpoint-compatible model.
+        filename (str | None): Explicit checkpoint name, if supplied.
+        device (str): Device used for model construction and checkpoint load.
+
+    Returns:
+        torch.nn.Module: An initialized model with its state dictionary loaded.
     """
     step_or_epoch = f"steps{epoch_or_step}" if ifstep else f"ep{epoch_or_step}"
 
@@ -22,10 +33,20 @@ def loadresults(batchsize, lr, epoch_or_step, ifstep, ModelClass, filename=None,
     model.load_state_dict(state_dict)
 
     return model
+
+
 def build_param_traj(batchsize, lr, step_list, ModelClass, device="cuda"):
-    """
-    Build parameter trajectory from saved checkpoints at specified steps.
-    Returns a list of parameter tensors (flattened) at each specified step.
+    """Build a flattened weight trajectory from saved checkpoints.
+
+    Args:
+        batchsize (int): Training batch size used in checkpoint names.
+        lr (float): Learning rate used in checkpoint names.
+        step_list (Sequence[int]): Ordered checkpoint step indices.
+        ModelClass (type): Callable returning a checkpoint-compatible model.
+        device (str): Device used while loading each checkpoint.
+
+    Returns:
+        list[torch.Tensor]: Flattened fc2 weight tensors in step order.
     """
     param_traj = []
 
