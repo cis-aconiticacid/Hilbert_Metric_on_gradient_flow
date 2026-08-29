@@ -24,7 +24,7 @@ def _swiss_roll_geometry(n_samples, D=32, noise=0.0, device="cuda"):
         u (torch.Tensor): Parameter u used in swiss roll generation.
         v (torch.Tensor): Parameter v used in swiss roll generation.
     """
-    u = torch.empty(n_samples, device=device).uniform_(3 * math.pi, 9 * math.pi) # the 
+    u = torch.empty(n_samples, device=device).uniform_(3 * math.pi, 9 * math.pi) # the
     v = torch.empty(n_samples, device=device).uniform_(0.0, 20.0)
 
     x1 = u * torch.cos(u)

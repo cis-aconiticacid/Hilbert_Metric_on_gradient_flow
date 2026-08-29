@@ -455,4 +455,3 @@ def analysis(
 
     combined_results = {**between_results, **w_star_results}
     return combined_results
-

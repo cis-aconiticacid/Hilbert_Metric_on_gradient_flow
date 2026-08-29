@@ -6,8 +6,8 @@ from pathlib import Path
 import os
 _old_sys_path = sys.path.copy()
 try:
-    project_root = Path.cwd().parent.parent
-    sys.path.insert(0, str(project_root / "src"))
+    project_root = Path(__file__).resolve().parents[2]
+    sys.path.insert(0, str(project_root))
     from functions import graph_print_analysis as gp_tool
 
 finally:
@@ -15,16 +15,6 @@ finally:
 
 
 def smooth(x, window=50):
-    """Apply a moving average to a one-dimensional numeric sequence.
-
-    Args:
-        x (Sequence[float]): Values to smooth.
-        window (int): Width of the averaging window.
-
-    Returns:
-        np.ndarray: Smoothed values, or the original array when it is shorter
-        than window.
-    """
     x = np.array(x, dtype=float)
     if len(x) < window:
         return x
@@ -33,24 +23,6 @@ def smooth(x, window=50):
 
 def analysis(param_traj, output_log, batch_size, lr, num_epochs=None,
              threshold=1e-3, if_mask=True, steps=None):
-    """Analyze and persist Hilbert-distance dynamics for a trajectory.
-
-    Args:
-        param_traj (Sequence): Parameter vectors over optimization steps.
-        output_log (str): Training log appended to the analysis report.
-        batch_size (int): Training batch size used in output names.
-        lr (float): Learning rate used in output names.
-        num_epochs (int | None): Completed epoch count.
-        threshold (float): Threshold retained for masked-cone analysis.
-        if_mask (bool): Whether to run the masked analysis section.
-        steps (int | None): Step count used instead of num_epochs.
-
-    Returns:
-        None: Plots and textual summaries are written under analysis_result.
-
-    Raises:
-        ValueError: If neither num_epochs nor steps is provided.
-    """
     if steps is not None:
         num_epochs = steps
     elif num_epochs is None:
@@ -84,8 +56,8 @@ def analysis(param_traj, output_log, batch_size, lr, num_epochs=None,
     # ============================
     # 1. 计算 ratio（保留你原来的逻辑）
     # ============================
-    hilbert_to_final = gp_tool.analysis_to_w_star(trajectory=param_traj, w_star=param_traj[-1], if_writes=False, if_print=False)
-    hilbert_between = gp_tool.analysis_to_w_between(trajectory=param_traj,if_writes=False,if_print=False)
+    hilbert_to_final = gp_tool.analysis_to_w_star(trajectory=param_traj, w_star=param_traj[-1], if_writes=False, if_print=False).get("hilbert_to_w_star", [])
+    hilbert_between = gp_tool.analysis_to_w_between(trajectory=param_traj,if_writes=False,if_print=False).get("hilbert_between", [])
     ratios_to_final = []
     ratios_between = []
     for t in range(len(hilbert_to_final) - 1):
@@ -187,7 +159,7 @@ def analysis(param_traj, output_log, batch_size, lr, num_epochs=None,
     tail_200 = ratios_to_final[-200:]
     tail_200_clean = [r for r in tail_200 if not math.isnan(r)]
     f.write("\nThe last 200 Steps ratio_to_final:\n")
-    
+
     if len(tail_200_clean) > 0:
         f.write(f"  Mean ≈ {sum(tail_200_clean)/len(tail_200_clean):.4f}\n")
         f.write(f"  Min ≈ {min(tail_200_clean):.4f}, Max ≈ {max(tail_200_clean):.4f}\n")
@@ -204,8 +176,8 @@ def analysis(param_traj, output_log, batch_size, lr, num_epochs=None,
     # 5. Masked Cone 分析（完全保留）
 
     f.write("===== Masked Cone Analysis Results =====\n")
-    hilbert_to_final2 = gp_tool.analysis_to_w_star(trajectory=para_traj2, w_star=w_star_raw, if_writes=False, if_print=False)   
-    hilbert_between2 = gp_tool.analysis_to_w_between(trajectory=para_traj2, if_writes=False, if_print=False)
+    hilbert_to_final2 = gp_tool.analysis_to_w_star(trajectory=para_traj2, w_star=w_star_raw, if_writes=False, if_print=False).get("hilbert_to_w_star_masked", [])
+    hilbert_between2 = gp_tool.analysis_to_w_between(trajectory=para_traj2, if_writes=False, if_print=False).get("hilbert_between_masked", [])
 
     ratios_to_final2 = []
     for t in range(len(hilbert_to_final2) - 1):

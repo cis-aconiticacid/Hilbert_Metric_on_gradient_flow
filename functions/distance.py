@@ -33,7 +33,7 @@ class distance_func:
         max_r = ratio.max()
         min_r = ratio.min()
         return (max_r.log() - min_r.log()).item()
-    
+
     # @staticmethod
     # def Thompson_distance(x,y):
     #     if (x<0).any() or (y<0).any():

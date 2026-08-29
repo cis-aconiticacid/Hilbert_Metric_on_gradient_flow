@@ -77,7 +77,7 @@ descent on a simple single-layer model with a nonnegative
 parametrization (linear map followed by an activation), trained with
 various loss functions.  The Swiss Roll is first embedded into a
 high-dimensional ambient space (up to dimension $4096$ in some runs), in
-order to examine the effect of dimensionality and noise on the projective 
+order to examine the effect of dimensionality and noise on the projective
 geometry of the parameter trajectory.
 
 Across all Swiss Roll experiments, the parameter trajectory exhibits a
@@ -85,7 +85,7 @@ surprisingly consistent projective structure.  The main observations are
 as follows.
 Formulas:
 \[
-\hat{y} = \sigma(w^\top x), 
+\hat{y} = \sigma(w^\top x),
 \qquad w \in \mathbb{R}^d,
 \]
 where $\sigma$ is chosen so that $\sigma'(z)\ge 0$ for all $z$
@@ -106,7 +106,7 @@ w_{t+1}
 \]
 and for a batch $\{(x_i,y_i)\}$,
 \[
-w_{t+1}= w_t - \eta \sum_i 
+w_{t+1}= w_t - \eta \sum_i
 L'(\sigma(w_t^\top x_i), y_i)\,\sigma'(w_t^\top x_i)\,x_i.
 \]
 No kernelization or feature engineering is used; the only source of
@@ -145,16 +145,16 @@ L_\delta(a)=
     \item \textbf{full batch GD}: \ The Hilbert trajectory shows a two-stage pattern under small noise after 3-5 initial iteration: an initial
 almost-arithmetic decrease, followed by near-geometric contraction.  This mirrors the linear-to-quadratic transition in the loss itself.
     \item \textbf{Alternating cone contraction}:The periodic-like trajectory appears more on the Huber loss models, even I increase the batch size to 4096.
-    \item \textbf{Stochastic GD}: The Stochastic GD significantly smooth the alternating cone contraction, but it's almost impossible to see a non-expansive phenomenon on Hilbert metric. 
+    \item \textbf{Stochastic GD}: The Stochastic GD significantly smooth the alternating cone contraction, but it's almost impossible to see a non-expansive phenomenon on Hilbert metric.
 \end{enumerate}
 \subparagraph{\textbf{Analysis:}}
 \begin{enumerate}
     \item \textbf{Linear}: after several initial vectors, since the difference between the predict y is not very closed to the exact y. Under Huber loss, the gradient becomes sign-like → update behaves like a piecewise positive, non-smooth cone map with no global Hessian.
-    
+
     \textbf{MSE}:when the loss is closed, according to the formula of Huber loss, the loss function is closed to the MSE loss.
     \item I think it's because the Huber loss is piecewise, so the two parts has different eigenvector, as a result it switches cones frequently during the training.(with similar contraction ration I guess?)
-    \item \textbf{more smooth} The stochastic GD introduces more noise so it might weaken the deterministic of the 2-cycle. 
-    
+    \item \textbf{more smooth} The stochastic GD introduces more noise so it might weaken the deterministic of the 2-cycle.
+
     \textbf{Fail restore non-expansion} I think it's because the noise is not enough to restores the difference between the two cycles led by the formula of Huber loss
 \end{enumerate}
 \section{Current observations on MNIST models }

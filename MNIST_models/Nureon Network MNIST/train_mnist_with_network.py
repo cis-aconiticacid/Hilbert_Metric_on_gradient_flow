@@ -19,6 +19,58 @@ try:
 finally:
     sys.path = _old_sys_path
 
+def train_mnist_with_hilbert(
+    # ... 你原来的参数 ...
+    save_path: Optional[str] = None,
+    save_name: Optional[str] = None,
+    # 新增
+    if_overwrite: bool = True,
+
+    if_record_test: bool = False,
+    check_distance: int = 500,
+) -> Dict[str, Any]:
+
+    # ... 你原来的训练代码不动 ...
+
+    def safe_torch_save(obj, path: Path, if_overwrite: bool):
+        """
+        Save obj to path. If file exists and not overwriting, raise.
+        """
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists() and (not if_overwrite):
+            raise FileExistsError(f"File already exists: {path} (set if_overwrite=True to overwrite)")
+        torch.save(obj, path)
+
+    # =======================
+    # Save
+    # =======================
+    if save_path is not None:
+        sp = Path(save_path)
+        if not sp.is_absolute():
+            raise ValueError("save_path must be an absolute path.")
+        sp.mkdir(parents=True, exist_ok=True)
+
+        # （可选）把 save_name 真的用起来：作为文件前缀
+        prefix = save_name if (save_name is not None and len(save_name) > 0) else ""
+
+        def with_prefix(filename: str) -> str:
+            return f"{prefix}_{filename}" if prefix else filename
+
+        traj_path = sp / with_prefix("param_trajectory.pt")
+        loss_path = sp / with_prefix("loss_trajectory.pt")
+
+        safe_torch_save(param_traj, traj_path, if_overwrite)
+        safe_torch_save(loss_traj, loss_path, if_overwrite)
+
+        output_log += f"Trajectory saved to {traj_path}\n"
+        output_log += f"Loss saved to {loss_path}\n"
+
+        if if_record_test:
+            acc_path = sp / with_prefix(f"test_acc_every_{check_distance}_steps.pt")
+            safe_torch_save(test_acc_record, acc_path, if_overwrite)
+            output_log += f"Test accuracy record saved to {acc_path}\n"
+    return
+
 
 class MNISTNet(nn.Module):
     def __init__(self, number_of_layerss=1, hidden_dim=256):
@@ -47,11 +99,10 @@ class HBModel_MNIST:
     # ============================
 
 
-
     def train_mnist_with_hilbert(
         number_of_layers: int = 1,
-        num_epochs: Optional[int] = None,      
-        max_steps: Optional[int] = None,       
+        num_epochs: Optional[int] = None,
+        max_steps: Optional[int] = None,
         batch_size: int = 128,
         lr: float = 1e-2,
         device: Optional[str] = None,
@@ -64,32 +115,36 @@ class HBModel_MNIST:
         save_path: Optional[str] = None,
         save_name: Optional[str] = None,
         seed: Optional[int] = 42,
+
+        # ===== 新增参数 =====
+        if_record_test: bool = False,
+        check_distance: int = 500,
+
+        # ===== 新增：是否允许覆盖保存文件 =====
+        if_overwrite: bool = True,
+
     ) -> Dict[str, Any]:
         """
         Train MNIST classifier while tracking output-layer trajectories and optional regularization.
-        Args:
-            number_of_layerss (int): Number of hidden linear/ReLU blocks to include (>=1).
-            num_epochs (Optional[int]): Number of full epochs to run; mutually exclusive with max_steps.
-            max_steps (Optional[int]): Fixed number of training steps when set; mutually exclusive with num_epochs.
-            batch_size (int): Mini-batch size for training.
-            lr (float): Learning rate for the SGD optimizer.
-            device (Optional[str]): Optional device override (defaults to CUDA when available).
-            initial_vector (Optional[Sequence[float]]): Optional 1D vector to initialize the output layer weights (flattened order).
-            if_regularize (bool): Whether to apply weight decay regularization.
-            if_decay (bool): Legacy flag preserved for compatibility; when True applies decay to all parameters.
-            loss_type (str): Loss choice: ce, huber, or mse.
-            huber_beta (float): Beta parameter for SmoothL1 loss when loss_type=huber.
-            regularization_coeff (float): Weight decay coefficient when regularization is enabled.
-            if_regularize_all (bool): When True, apply regularization to all parameters; otherwise only the output layer.
-            save_path (Optional[str]): Absolute path to save the parameter trajectory; when None, do not save.
-            seed (Optional[int]): Random seed for reproducibility; when None, leave the current RNG state unchanged.
+
+        New:
+            if_record_test (bool): whether to periodically evaluate test accuracy.
+            check_distance (int): checkpoint interval (record param/loss and optionally eval test acc).
+            if_overwrite (bool): whether to overwrite existing saved files.
 
         Returns:
-            Dict[str, Any]: "model"
-            "output_log",
-            "batch_size",
-            "lr",
-            "epochs_or_steps"
+            Dict[str, Any]:
+                "model"
+                "param_traj"         (List[tensor], checkpointed)
+                "traj_steps"         (List[int], same length as param_traj)
+                "loss_traj"          (List[float], checkpointed)
+                "loss_steps"         (List[int], same length as loss_traj)
+                "test_acc_record"    (dict or None)
+                "output_log"
+                "batch_size"
+                "lr"
+                "epochs_or_steps"
+                "steps_run"
         """
         # ------------ 基本参数检查 ------------
         if (num_epochs is None) and (max_steps is None):
@@ -98,6 +153,8 @@ class HBModel_MNIST:
             raise ValueError("只能二选一：要么用 num_epochs，要么用 max_steps。")
         if number_of_layers < 1:
             raise ValueError("number_of_layerss must be at least 1.")
+        if (check_distance is None) or (not isinstance(check_distance, int)) or (check_distance <= 0):
+            raise ValueError("check_distance 必须是正整数（想每一步都记录就设为 1）。")
 
         output_log = ""
         if device is None:
@@ -114,7 +171,7 @@ class HBModel_MNIST:
 
         # ---- MNIST data ----
         transform = transforms.Compose([
-            transforms.ToTensor(),                  # [0, 1]
+            transforms.ToTensor(),
             transforms.Normalize((0.1307,), (0.3081,)),
         ])
 
@@ -129,9 +186,26 @@ class HBModel_MNIST:
             train_dataset,
             batch_size=batch_size,
             shuffle=True,
-            num_workers=7,      # 多进程加载
-            pin_memory=True,    # 加速 CPU→GPU 拷贝
+            num_workers=7,
+            pin_memory=True,
         )
+
+        # ===== Test loader (optional) =====
+        test_loader = None
+        if if_record_test:
+            test_dataset = datasets.MNIST(
+                root="./data",
+                train=False,
+                download=True,
+                transform=transform,
+            )
+            test_loader = DataLoader(
+                test_dataset,
+                batch_size=1024,
+                shuffle=False,
+                num_workers=7,
+                pin_memory=True,
+            )
 
         model = MNISTNet(number_of_layerss=number_of_layers).to(device)
 
@@ -139,13 +213,11 @@ class HBModel_MNIST:
         if loss_type == "ce":
             criterion = nn.CrossEntropyLoss()
         elif loss_type == "huber":
-            # Huber/SmoothL1，对 logits 和 one-hot target 做
             criterion = nn.SmoothL1Loss(beta=huber_beta)
         elif loss_type == "mse":
             criterion = nn.MSELoss()
         else:
             raise ValueError(f"Unknown loss_type: {loss_type}")
-
 
         if if_regularize:
             if if_regularize_all or if_decay:
@@ -161,25 +233,52 @@ class HBModel_MNIST:
         else:
             optimizer = torch.optim.SGD(model.parameters(), lr=lr)
 
-        # ---- 用于存储参数轨迹（最后一层 output_layer.weight 的真实向量）----
-        # 不做任何 abs / eps / mask / threshold 处理，全部留到外部分析函数统一处理
-        param_traj = []
-        loss_traj = []
-        
-        # 先记录初始权重 w_0
+        # ====== checkpointed trajectories ======
+        param_traj: List[torch.Tensor] = []
+        traj_steps: List[int] = []
+
+        loss_traj: List[float] = []
+        loss_steps: List[int] = []
+
+        # ===== 新增：test accuracy 记录结构 =====
+        test_acc_record = None
+        if if_record_test:
+            test_acc_record = {
+                "check_distance": check_distance,
+                "acc_traj": [],       # list of {"step": int, "acc": float}
+                "final_test_acc": None
+            }
+
+        def eval_test_accuracy() -> float:
+            """Compute accuracy on test set."""
+            if test_loader is None:
+                raise RuntimeError("test_loader is None but eval_test_accuracy() was called.")
+            model.eval()
+            correct = 0
+            total = 0
+            with torch.no_grad():
+                for images, labels in test_loader:
+                    images = images.to(device, non_blocking=True)
+                    labels = labels.to(device, non_blocking=True)
+                    logits = model(images)
+                    pred = logits.argmax(dim=1)
+                    correct += (pred == labels).sum().item()
+                    total += labels.size(0)
+            return correct / max(total, 1)
+
+        # ===== step=0 记录初始权重 w0 =====
         with torch.no_grad():
             w0 = model.output_layer.weight.detach().cpu().reshape(-1).clone()
-            param_traj.append(w0)
+        param_traj.append(w0)
+        traj_steps.append(0)
 
         # =======================
         # Training loop
         # =======================
         global_step = 0
         epoch_idx = 0
+        last_loss_value: Optional[float] = None
 
-        # 训练条件：
-        # - epoch 模式：epoch_idx < num_epochs
-        # - step  模式：global_step < max_steps
         def should_continue():
             cond_epoch = (num_epochs is None) or (epoch_idx < num_epochs)
             cond_steps = (max_steps is None) or (global_step < max_steps)
@@ -187,16 +286,11 @@ class HBModel_MNIST:
 
         while should_continue():
             model.train()
-            # running_loss = 0.0
-            # correct = 0
-            # total = 0
 
             for batch_idx, (images, labels) in enumerate(train_loader):
-                # 如果是固定 step 模式，先检查是否已经够了
                 if (max_steps is not None) and (global_step >= max_steps):
                     break
 
-                # non_blocking=True 在 pin_memory=True 时可以略微提升吞吐
                 images = images.to(device, non_blocking=True)
                 labels = labels.to(device, non_blocking=True)
 
@@ -204,81 +298,121 @@ class HBModel_MNIST:
                 logits = model(images)
 
                 if loss_type == "ce":
-                    # 标准分类交叉熵
                     loss = criterion(logits, labels)
-
                 else:
-                    # 先把 label 变成 one-hot
-                    # logits.shape: [B, 10]
-                    # labels.shape: [B]
                     target_onehot = F.one_hot(labels, num_classes=10).float()
-
                     if loss_type == "huber":
-                        # 对 logits 和 one-hot target 做 Huber (SmoothL1)
-                        # 这里 target_onehot 已经是 0/1，逻辑上相当于让正确类的 logit 逼近 1，其余逼近 0
+                        loss = criterion(logits, target_onehot)
+                    elif loss_type == "mse":
                         loss = criterion(logits, target_onehot)
 
-                    elif loss_type == "mse":
-                        # 纯 MSE 版本
-                        loss = criterion(logits, target_onehot)
-                loss_traj.append(loss.item())
+                last_loss_value = float(loss.item())
                 loss.backward()
                 optimizer.step()
 
-                # # Track training accuracy (optional)
-                # running_loss += loss.item() * images.size(0)
-                # _, predicted = logits.max(1)
-                # correct += (predicted == labels).sum().item()
-                # total += labels.size(0)
-
-                # ====== 每次参数更新之后，记录 output_layer.weight 的真实向量 ======
-                with torch.no_grad():
-                    w_t = model.output_layer.weight.detach().cpu().reshape(-1).clone()
-                    param_traj.append(w_t)
-
                 global_step += 1
 
-                # 再次检查 step 是否超限（防止多跑）
+                # ===== 统一 checkpoint：param / loss / (optional) test acc =====
+                if (global_step % check_distance == 0):
+                    # record param
+                    with torch.no_grad():
+                        w_t = model.output_layer.weight.detach().cpu().reshape(-1).clone()
+                    param_traj.append(w_t)
+                    traj_steps.append(global_step)
+
+                    # record loss (this step's batch loss)
+                    loss_traj.append(last_loss_value)
+                    loss_steps.append(global_step)
+
+                    # record test acc
+                    if if_record_test:
+                        acc = eval_test_accuracy()
+                        test_acc_record["acc_traj"].append({"step": global_step, "acc": acc})
+                        output_log += f"[Test Acc] step={global_step}: {acc*100:.2f}%\n"
+
                 if (max_steps is not None) and (global_step >= max_steps):
                     break
 
-            # epoch 级别的 log 你暂时注释掉了，就保持不动
             epoch_idx += 1
-
             if not should_continue():
                 break
 
-        steps_run = len(param_traj) - 1  # 去掉初始 w0
+        steps_run = global_step
         output_log += (
-            f"Training finished. Recorded steps (updates) = {steps_run}, "
-            f"trajectory length (including init) = {len(param_traj)}\n"
+            f"Training finished. updates(steps) = {steps_run}, "
+            f"checkpoint interval = {check_distance}, "
+            f"param checkpoints = {len(param_traj)} (including init)\n"
         )
 
+        # ===== 训练结束：保证最终 step 被记录（param/loss/test acc）=====
+        if (len(traj_steps) == 0) or (traj_steps[-1] != steps_run):
+            with torch.no_grad():
+                w_final = model.output_layer.weight.detach().cpu().reshape(-1).clone()
+            param_traj.append(w_final)
+            traj_steps.append(steps_run)
+
+            if steps_run > 0 and (last_loss_value is not None):
+                loss_traj.append(last_loss_value)
+                loss_steps.append(steps_run)
+
+        if if_record_test:
+            final_acc = eval_test_accuracy()
+            test_acc_record["final_test_acc"] = final_acc
+            if (len(test_acc_record["acc_traj"]) == 0) or (test_acc_record["acc_traj"][-1]["step"] != steps_run):
+                test_acc_record["acc_traj"].append({"step": steps_run, "acc": final_acc})
+            output_log += f"[Test Acc] final (step={steps_run}): {final_acc*100:.2f}%\n"
+
         # =======================
-        # 这里不再做任何 Hilbert 分析，只是简单留下最终权重
+        # Save (with overwrite control)
         # =======================
-        # w_star = param_traj[-1]
+        def safe_torch_save(obj, path: Path, if_overwrite_: bool):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if path.exists() and (not if_overwrite_):
+                raise FileExistsError(f"File already exists: {path} (set if_overwrite=True to overwrite)")
+            torch.save(obj, path)
 
         if save_path is not None:
-            traj_path = Path(save_path) / 'param_trajectory.pt'
-            loss_path = Path(save_path) / 'loss_trajectory.pt'
-            if not traj_path.is_absolute():
+            sp = Path(save_path)
+            if not sp.is_absolute():
                 raise ValueError("save_path must be an absolute path.")
-            traj_path.parent.mkdir(parents=True, exist_ok=True)
-            
-            torch.save(param_traj, traj_path)
-            torch.save(loss_traj, loss_path)
-            output_log += f"Trajectory saved to {traj_path}\n"
+            sp.mkdir(parents=True, exist_ok=True)
 
-        # 统一交给外部 analysis(...) 去做 Hilbert / mask / threshold 等等
+            prefix = save_name if (save_name is not None and len(save_name) > 0) else ""
+
+            def with_prefix(filename: str) -> str:
+                return f"{prefix}_{filename}" if prefix else filename
+
+            # 用 check_distance 进文件名，避免多实验覆盖还看不出
+            traj_path = sp / with_prefix(f"param_trajectory_every_{check_distance}_steps.pt")
+            loss_path = sp / with_prefix(f"loss_trajectory_every_{check_distance}_steps.pt")
+            steps_path = sp / with_prefix(f"record_steps_every_{check_distance}_steps.pt")
+
+            safe_torch_save(param_traj, traj_path, if_overwrite)
+            safe_torch_save(loss_traj, loss_path, if_overwrite)
+            safe_torch_save({"traj_steps": traj_steps, "loss_steps": loss_steps}, steps_path, if_overwrite)
+
+            output_log += f"Param trajectory saved to {traj_path}\n"
+            output_log += f"Loss trajectory saved to {loss_path}\n"
+            output_log += f"Record steps saved to {steps_path}\n"
+
+            if if_record_test:
+                acc_path = sp / with_prefix(f"test_acc_every_{check_distance}_steps.pt")
+                safe_torch_save(test_acc_record, acc_path, if_overwrite)
+                output_log += f"Test accuracy record saved to {acc_path}\n"
+
         return {
             "model": model,
             "param_traj": param_traj,
+            "traj_steps": traj_steps,
+            "loss_traj": loss_traj,
+            "loss_steps": loss_steps,
+            "test_acc_record": test_acc_record,
             "output_log": output_log,
             "batch_size": batch_size,
             "lr": lr,
             "epochs_or_steps": f"steps{max_steps}" if max_steps is not None else f"ep{num_epochs}",
-            "loss_traj": loss_traj,
+            "steps_run": steps_run,
+            "check_distance": check_distance,
         }
 
     @staticmethod
@@ -495,5 +629,3 @@ class HBModel_MNIST:
             "lr": result["lr"],
             "step": result.get("steps", len(result.get("param_traj", [])) - 1),
         }
-
-

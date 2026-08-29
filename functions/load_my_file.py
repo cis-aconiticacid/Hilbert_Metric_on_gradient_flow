@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 # from MNIST_models.graph_print_analysis import moving_average_xy
 
 # ====== 配置 ======
-BASE_DIR = Path(r"C:\Users\ASUS\Desktop\cone_dynamics\MNIST_models\analysis_resul")
+BASE_DIR = Path(__file__).resolve().parents[1] / "MNIST_models" / "Nureon Network MNIST" / "analysis_result"
 
 batch_sizes = [16, 32, 64, 128, 256, 512, 1024, 2048, 4096]
 num_epochs = [1, 2, 3, 4, 5, 6]
@@ -83,7 +83,7 @@ def plot_between_for_config(
             filename = f"analysis_resultAnalysis_bs{batch_size}_lr{lr}_epsteps{step}ratios_between.json"
         else:
             filename = f"analysis_resultAnalysis_bs{batch_size}_lr{lr}_epep{ep}ratios_between.json"
-            
+
     json_path = base_dir / filename
 
     if not json_path.exists():
